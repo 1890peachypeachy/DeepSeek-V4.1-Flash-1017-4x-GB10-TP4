@@ -10,6 +10,13 @@ NFS_VOLUME="${NFS_VOLUME:-dsv41-weights}"
 NFS_DOCKERFILE_DIR="${NFS_DOCKERFILE_DIR:-$ROOT/files/nfs-server}"
 NFS_EXPORT_NAME="${NFS_EXPORT_NAME:-dsv41-native}"
 HF_EXPORT_ROOT="${HF_EXPORT_ROOT:-$HOME/.cache/huggingface}"
+# Fleet-wide shared export root: dsv41-nfs (and glm53's nfs container) can export
+# the PARENT of MODEL_DIR so DeepSeek and GLM weight trees coexist under one
+# NFSv4 pseudo-root ("NFS for both at any time"). When the live export root is
+# this dir (not MODEL_DIR itself, not the HF cache), mount the MODEL_DIR
+# subpath directly — the checkpoint is already laid out there natively, so
+# unlike the HF_EXPORT_ROOT case this needs no hardlink-publish step.
+SHARED_EXPORT_ROOT="${SHARED_EXPORT_ROOT:-$(dirname "$MODEL_DIR")}"
 NFS_OPTS_CLIENT="${NFS_OPTS_CLIENT:-nfsvers=4.2,ro,nconnect=8,rsize=1048576,wsize=1048576,hard,timeo=600}"
 
 nfs_clients() {
@@ -117,18 +124,24 @@ nfs_ensure_server() {
   live="$(nfs_live_container || true)"
 
   if [[ -n "$live" ]] && nfs_rpc_ready 127.0.0.1; then
-    if [[ "$live" == "$NFS_CONTAINER" ]]; then
-      # A same-named container can survive a profile/model-path change. Never
-      # silently make workers mount that stale checkpoint or replace a live server.
-      nfs_require_current_model_export "$live"
-    fi
-    info "NFS already up ($live) — adding spark2/spark3 CX7 clients"
-    nfs_write_exports "$live" "$clients"
-    if [[ "$live" == "$NFS_CONTAINER" ]]; then
-      NFS_REUSE_EXPORT=0   # our exporter has MODEL_DIR at the NFSv4 root
-    else
+    local export_source
+    export_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/export"}}{{.Source}}{{end}}{{end}}' "$live")
+    if [[ "$export_source" == "$MODEL_DIR" ]]; then
+      NFS_REUSE_EXPORT=0   # exporter has MODEL_DIR at the NFSv4 root
+    elif [[ "$export_source" == "$SHARED_EXPORT_ROOT" ]]; then
+      # Fleet shared-parent export (tested BEFORE the HF root: on our fleet both are
+      # /var/tmp/models, and the shared branch needs no hardlink publish).
+      NFS_REUSE_EXPORT=2
+      NFS_DEVICE=":/$(basename "$MODEL_DIR")"
+    elif [[ "$export_source" == "$HF_EXPORT_ROOT" ]]; then
       NFS_REUSE_EXPORT=1   # HF-cache exporter needs the published subtree
+    else
+      # Keep adapt's guard: never silently make workers mount a stale/other
+      # checkpoint or replace a live exporter.
+      die "NFS $live exports $export_source; expected $MODEL_DIR, $SHARED_EXPORT_ROOT or $HF_EXPORT_ROOT (stop it explicitly, then rerun share)"
     fi
+    info "NFS already up ($live) — adding CX7 clients"
+    nfs_write_exports "$live" "$clients"
     NFS_LIVE_CTN="$live"
     return 0
   fi
@@ -162,6 +175,12 @@ nfs_ensure_server() {
 # When reusing vllm-fn-nfs (HF cache as NFSv4 root), publish the checkpoint
 # into that tree with hardlinks (same ext4, zero extra bytes).
 nfs_publish_model() {
+  if [[ "${NFS_REUSE_EXPORT:-0}" == "2" ]]; then
+    # Shared parent export: MODEL_DIR already lives natively at its subpath under
+    # the export root, no hardlink-publish needed. nfs_ensure_server already set
+    # NFS_DEVICE=":/$(basename "$MODEL_DIR")" — keep it.
+    return 0
+  fi
   if [[ "${NFS_REUSE_EXPORT:-0}" != "1" ]]; then
     NFS_DEVICE=":/"
     return 0
