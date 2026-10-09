@@ -1,6 +1,7 @@
 # Arm64 sibling of the 0xSero pin (lmsysorg/sglang:dev-dsv41, linux/amd64
 # digest sha256:c4ca651192e57e91989b5176c3665148131b9a171e53861dee87f5e57cef25b5).
-FROM lmsysorg/sglang:dev-dsv41
+ARG BASE_IMAGE=lmsysorg/sglang:dev-dsv41
+FROM ${BASE_IMAGE}
 WORKDIR /opt/dsv41
 COPY adapter /opt/dsv41/adapter
 RUN g++ -O2 -Wall -Wextra -Werror -std=c++17 -shared -fPIC -pthread \

@@ -177,6 +177,8 @@ source "$ROOT/files/nfs-share.sh"
 # shellcheck source=files/nccl.sh
 source "$ROOT/files/nccl.sh"
 source "$ROOT/files/doctor-network.sh"
+source "$ROOT/files/image-build.sh"
+DOCKER_PROXY_CHECK_CODE="$(cat "$ROOT/scripts/docker_proxy_check.py")"
 
 remote_on() {
   local host="$1"; shift
@@ -602,25 +604,27 @@ cmd_download() {
 cmd_pull() {
   info "=== pull $BASE_IMAGE on all nodes ==="
   ensure_ssh_keys
-  docker pull --platform linux/arm64 "$BASE_IMAGE"
+  local base
+  base=$(build_base_image) || return 1
+  base_image_ready "$base" 1 || return 1
   local h
   for h in "${WORKER_HOSTS[@]}"; do
     info "pulling on $h ..."
     remote_on "$h" --timeout "${PULL_TIMEOUT:-0}" \
-      "docker pull --platform linux/arm64 $(printf '%q' "$BASE_IMAGE")"
+      "$(base_image_worker_command "$base" 1)" || return 1
   done
   info "base image present on all nodes"
 }
 
 cmd_build() {
   info "=== build $IMAGE from $ROOT ($BUILD_DOCKERFILE) ==="
-  if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-    cmd_pull
-  fi
+  local base
+  base=$(build_base_image) || return 1
+  base_image_ready "$base" || return 1
   local dockerfile="$BUILD_DOCKERFILE"
   case "$dockerfile" in /*) die "BUILD_DOCKERFILE must be inside the repository (got $dockerfile)";; esac
   [[ -f "$ROOT/$dockerfile" ]] || die "no such Dockerfile: $ROOT/$dockerfile"
-  docker build -f "$ROOT/$dockerfile" -t "$IMAGE" $BUILD_ARGS "$ROOT"
+  docker build -f "$ROOT/$dockerfile" -t "$IMAGE" $BUILD_ARGS --build-arg "BASE_IMAGE=$base" --pull=false "$ROOT"
   local img_arch
   img_arch=$(docker image inspect -f '{{.Architecture}}' "$IMAGE")
   [[ "$img_arch" == "arm64" ]] || die "expected arm64 image, got $img_arch"
@@ -641,8 +645,8 @@ cmd_build() {
       "$ROOT/" "${WORKER_USER}@${h}:${WORKER_DIR}/"
     info "docker build on $h ..."
     remote_on "$h" --timeout "${BUILD_TIMEOUT:-0}" \
-      "docker image inspect $(printf '%q' "$BASE_IMAGE") >/dev/null || docker pull --platform linux/arm64 $(printf '%q' "$BASE_IMAGE")
-       cd $(printf '%q' "$WORKER_DIR") && docker build -f $(printf '%q' "$dockerfile") -t $(printf '%q' "$IMAGE") $BUILD_ARGS ."
+      "$(base_image_worker_command "$base")
+       cd $(printf '%q' "$WORKER_DIR") && docker build -f $(printf '%q' "$dockerfile") -t $(printf '%q' "$IMAGE") $BUILD_ARGS --build-arg $(printf '%q' "BASE_IMAGE=$base") --pull=false ."
   done
   info "overlay image on all 3 nodes"
 }

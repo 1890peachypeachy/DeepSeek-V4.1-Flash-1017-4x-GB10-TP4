@@ -4,6 +4,8 @@
 
 ## Credits
 
+- **hushengkai** ([#10](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4/issues/10)): offline image loads and dead daemon-proxy diagnosis; `SKIP_PULL=1` uses local base tags for serving-image builds.
+
 - **bertholomus** ([Mia PR #10](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/10)) and **hushengkai** ([Mia #45](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/issues/45)): reading HCA port state and checking node-specific fabric configuration in doctor.
 
 - **motzudao** ([Mia #31](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/issues/31)): preserving the required FlashInfer FP8 backend when users supply extra launch arguments.

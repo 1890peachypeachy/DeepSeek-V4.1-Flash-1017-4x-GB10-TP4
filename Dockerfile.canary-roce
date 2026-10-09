@@ -6,7 +6,8 @@
 # git cannot fetch unauthenticated. Mia's SM120 page-split override is re-applied on top of
 # the branch's kernel file. Everything else is the production Dockerfile.
 # Tag: dsv41-4x-spark:canary
-FROM lmsysorg/sglang:dev-dsv41
+ARG BASE_IMAGE=lmsysorg/sglang:dev-dsv41
+FROM ${BASE_IMAGE}
 # Same mirror knob as Dockerfile.canary (Saolence, #6): --build-arg PIP_INDEX=<mirror>/simple
 ARG PIP_INDEX=https://pypi.org/simple
 RUN pip install --no-deps --no-cache-dir -i "$PIP_INDEX" "sglang-kernel==0.4.7" "sgl-deep-gemm==0.2.0"
