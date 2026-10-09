@@ -365,6 +365,8 @@ docker_common_args() {
     _a+=(-e "EXTRA_SGLANG_ARGS=$EXTRA_SGLANG_ARGS")
   fi
   # Generic passthrough so an experiment is one .env line, not a launcher edit.
+  [[ "${DSV41_TRITON_CACHE:-0}" != 1 ]] || _a+=(-e "TRITON_CACHE_DIR=/state/triton")
+
   # EXTRA_CONTAINER_ENV="FOO=1 BAR=2" (whitespace separated KEY=VALUE pairs).
   if [[ -n "${EXTRA_CONTAINER_ENV:-}" ]]; then
     local _kv
@@ -407,6 +409,7 @@ worker_env_lines() {
   local wip="$1" wgid="$2" rank="$3"
   # Mirror of the head's EXTRA_CONTAINER_ENV passthrough; every rank must agree.
   local _extra_env="-e DSV41_EXTRA_ENV=1" _kv
+  [[ "${DSV41_TRITON_CACHE:-0}" != 1 ]] || _extra_env+=" -e TRITON_CACHE_DIR=/state/triton"
   for _kv in ${EXTRA_CONTAINER_ENV:-}; do _extra_env+=" -e $(printf '%q' "$_kv")"; done
   # Ring environment is mirrored to every rank. The leading space comes from here,
   # not from switchless_ring_env_string, so that with the switch off this line is
