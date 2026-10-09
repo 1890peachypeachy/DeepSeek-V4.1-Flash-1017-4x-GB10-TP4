@@ -176,6 +176,7 @@ mkdir -p "$LOG_DIR" "$STATE_DIR"
 source "$ROOT/files/nfs-share.sh"
 # shellcheck source=files/nccl.sh
 source "$ROOT/files/nccl.sh"
+source "$ROOT/files/doctor-network.sh"
 
 remote_on() {
   local host="$1"; shift
@@ -459,6 +460,7 @@ cmd_doctor() {
   echo "offload:  $OFFLOAD_MODE  cache=${DSV41_CACHE_GIB}GiB  spec=$SPEC_ALGO-$DSPARK_BLOCK_SIZE  port=$PORT"
   echo
   local ok=0
+  doctor_network_checks || ok=1
   command -v docker >/dev/null || { warn "docker missing on head"; ok=1; }
   command -v nvidia-smi >/dev/null && info "GPU: $(nvidia-smi -L | head -1)" || { warn "nvidia-smi missing"; ok=1; }
   [[ -f "$SSH_IDENTITY" ]] && info "SSH key $SSH_IDENTITY" || { warn "SSH key missing"; ok=1; }
