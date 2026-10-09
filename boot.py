@@ -259,6 +259,32 @@ def _gpu_lines():
         text=True).strip().splitlines()
 
 
+def required_sglang_args(args, backend):
+    """Keep the required dense-kernel route when users supply extra arguments."""
+    if backend.strip().lower() == 'off':
+        return args
+    flag = '--fp8-gemm-backend'
+    result, values = [], []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == flag:
+            value = args[i + 1] if i + 1 < len(args) and not args[i + 1].startswith('--') else ''
+            values.append(value)
+            i += 2 if value else 1
+        elif arg.startswith(flag + '='):
+            values.append(arg.split('=', 1)[1])
+            i += 1
+        else:
+            result.append(arg)
+            i += 1
+    effective = values[-1] if values else 'auto (omitted)'
+    if effective != 'flashinfer_cutlass':
+        print(f'WARNING: DSV41_MXFP8_BACKEND={backend} requires '
+              f'{flag} flashinfer_cutlass; effective value {effective!r} replaced', flush=True)
+    return result + [flag, 'flashinfer_cutlass']
+
+
 def serve():
     mode = os.environ.get('OFFLOAD_MODE', 'nvme')
     assert mode in ('nvme', 'ram'), 'OFFLOAD_MODE must be nvme or ram'
@@ -345,6 +371,7 @@ def serve():
     extra = os.environ.get('EXTRA_SGLANG_ARGS', '').strip()
     if extra:
         args += extra.split()
+    args = required_sglang_args(args, os.environ.get('DSV41_MXFP8_BACKEND', 'b12x'))
 
     save('launch.json', {
         'revision': REVISION, 'offload_mode': mode, 'args': args, 'gpus': gpu,
