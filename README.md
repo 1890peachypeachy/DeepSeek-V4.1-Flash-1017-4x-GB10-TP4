@@ -4,6 +4,8 @@
 
 ## Credits
 
+- **100menotu001** ([Mia PR #47](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/47)): accepting enabled Messages thinking without an explicit budget while retaining validation for supplied budgets.
+
 - **hushengkai** ([Mia PR #15](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/15)): sanitizing textual image placeholders in the encoder while preserving real image blocks; the build checks both anchors.
 
 - **yalindogusahin** ([Mia PR #4](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/4)), **RustyAiLab** ([PR #5](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/5), [PR #8](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/8)), and **BHCC2025** ([PR #26](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/26)): NFS exporter reuse, single-rail shell fixes, remote environment defaults, and re-sharing before packing. GID auto-selection is opt-in here.
