@@ -237,6 +237,17 @@ api_key() {
   esac
 }
 
+resolved_gid() {
+  local detected="$1"
+  if [[ -n "${NCCL_IB_GID_INDEX:-}" ]]; then
+    echo "$NCCL_IB_GID_INDEX"
+  elif [[ -n "$detected" ]]; then
+    echo "$detected"
+  elif [[ "${NCCL_IB_GID_AUTO:-0}" != 1 ]]; then
+    echo 3
+  fi
+}
+
 gid_index_local() {
   local ip="$1" hex hca g i
   hex=$(printf '%02x%02x:%02x%02x' $(echo "$ip" | tr . ' '))
@@ -345,8 +356,8 @@ docker_common_args() {
     -e "DSV41_TP_PAD=${DSV41_TP_PAD:-1}"
     -e "VLLM_HOST_IP=$hip"
     -e "HOST_IP=$hip"
-    -e "NCCL_IB_GID_INDEX=$gid"
   )
+  [[ -z "$gid" ]] || _a+=(-e "NCCL_IB_GID_INDEX=$gid")
   if [[ -n "${API_KEY}" ]]; then
     _a+=(-e "API_KEY=$API_KEY")
   fi
@@ -449,7 +460,7 @@ worker_env_lines() {
         -e DSV41_LOOP_REPEATS=${DSV41_LOOP_REPEATS:-4} \\
         -e DSV41_LOOP_LINE_REPEATS=${DSV41_LOOP_LINE_REPEATS:-8} \\
         -e PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:False} \\
-        -e NCCL_IB_GID_INDEX=$wgid \\
+        ${wgid:+-e NCCL_IB_GID_INDEX=$wgid} \\
         -e CUDA_DEVICE_ORDER=PCI_BUS_ID \\
         -e SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE=0 \\
         -e DSV41_TP_PAD=${DSV41_TP_PAD:-1} \\
@@ -749,10 +760,10 @@ cmd_serve() {
   local GID_HEAD gi g
   local -a WORKER_GIDS=()
   GID_HEAD=$(gid_index_local "$HEAD_IP" 2>/dev/null || true)
-  GID_HEAD="${GID_HEAD:-${NCCL_IB_GID_INDEX:-3}}"
+  GID_HEAD="$(resolved_gid "$GID_HEAD")"
   for gi in "${!WORKER_IPS[@]}"; do
     g=$(gid_index_remote "${WORKER_HOSTS[$gi]}" "${WORKER_IPS[$gi]}" | tr -d '\r' || true)
-    WORKER_GIDS+=("${g:-${NCCL_IB_GID_INDEX:-3}}")
+    WORKER_GIDS+=("$(resolved_gid "$g")")
   done
   info "RoCEv2 GID indexes: head=$GID_HEAD workers=${WORKER_GIDS[*]}"
 
@@ -976,6 +987,16 @@ shift || true
 cmd_pack() {
   local src
   src=$(model_src)
+  if [[ "$NFS_SHARE" == 1 ]]; then
+    local h need_share=0
+    for h in "${WORKER_HOSTS[@]}"; do
+      nfs_worker_has_model "$h" || need_share=1
+    done
+    if [[ "$need_share" == 1 ]]; then
+      info "a worker cannot see the checkpoint over NFS — running share first"
+      cmd_share
+    fi
+  fi
   info "packing Engram shards: head $ENGRAM_DIR, workers $WORKER_ENGRAM_DIR"
   mkdir -p "$ENGRAM_DIR"
   docker run --rm --network host \

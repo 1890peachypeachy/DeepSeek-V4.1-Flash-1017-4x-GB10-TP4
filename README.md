@@ -4,6 +4,8 @@
 
 ## Credits
 
+- **yalindogusahin** ([Mia PR #4](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/4)), **RustyAiLab** ([PR #5](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/5), [PR #8](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/8)), and **BHCC2025** ([PR #26](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/26)): NFS exporter reuse, single-rail shell fixes, remote environment defaults, and re-sharing before packing. GID auto-selection is opt-in here.
+
 - **100menotu001** ([Mia PR #46](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/46)): public-key recovery, authorized-key identity matching, and actionable share-before-build errors.
 
 - **hushengkai** ([#10](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4/issues/10)): offline image loads and dead daemon-proxy diagnosis; `SKIP_PULL=1` uses local base tags for serving-image builds.

@@ -39,7 +39,7 @@ def launcher_source():
 def shell(code, directory, settings=None):
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "ROOT": str(ROOT)}
     for name in ("MODEL_DIR", "COMMON_MODEL", "SSH_IDENTITY", "NCCL_HOST_DIR",
-                 "STATE_DIR", "LOG_DIR", "WORKER_DIR", "WORKER_ENGRAM_DIR", "ENGRAM_DIR"):
+                 "STATE_DIR", "LOG_DIR", "WORKER_DIR", "WORKER_ENGRAM_DIR", "ENGRAM_DIR", "HF_EXPORT_ROOT"):
         env[name] = str(directory / name)
     env.update(settings or {})
     result = subprocess.run(["bash", "-c", launcher_source() + "\n" + code],
