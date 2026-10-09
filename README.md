@@ -4,6 +4,8 @@
 
 ## Credits
 
+- **hushengkai** ([Mia #44](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/issues/44), [#9](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4/issues/9)): diagnosing short-request starvation during chunked prefill. The opt-in bounded admission adapter here is an independent implementation pending fleet qualification.
+
 - **100menotu001** ([Mia PR #47](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/47)): accepting enabled Messages thinking without an explicit budget while retaining validation for supplied budgets.
 
 - **hushengkai** ([Mia PR #15](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/pull/15)): sanitizing textual image placeholders in the encoder while preserving real image blocks; the build checks both anchors.

@@ -242,6 +242,10 @@ class EngramLoader(importlib.abc.Loader):
             # raising inside the forward under decoder SWA bounded replay (all ranks exit).
             from replay_guard import install as install_replay_guard
             install_replay_guard(module)
+        elif module.__name__ == 'sglang.srt.managers.scheduler':
+            if os.environ.get('DSV41_PREFILL_BYPASS', '').strip():
+                from prefill_bypass import install as install_prefill_bypass
+                install_prefill_bypass(module)
         elif module.__name__ == 'sglang.srt.managers.schedule_batch':
             from loop_abort import install as install_loop_abort
             install_loop_abort(module)
@@ -276,6 +280,7 @@ class EngramFinder(importlib.abc.MetaPathFinder):
                             'sglang.srt.speculative.dspark_components.dspark_draft_sampler',
                             'sglang.kernels.ops.speculative.dspark.dspark_accept',
                             'sglang.srt.managers.schedule_batch',
+                            'sglang.srt.managers.scheduler',
                             'sglang.srt.managers.tokenizer_manager',
                             'sglang.kernels.ops.moe.moe_fused_gate',
                             'sglang.srt.speculative.dspark_components.dspark_draft',
