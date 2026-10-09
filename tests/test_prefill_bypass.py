@@ -205,6 +205,21 @@ class PrefillBypassTests(unittest.TestCase):
         self.assertEqual(module.PrefillAdder.latest.rem_chunk_tokens, -2)
         self.assertIsNone(module.PrefillAdder.latest.new_chunked_req)
 
+    def test_one_pass_adds_at_most_chunk_plus_limit(self):
+        # The forward-pass activation peak grows with the batch and the token-pool
+        # check does not see it. Once a bypass admission exhausts the chunk compute
+        # cap, the engine returns OTHER for that admitted request and the loop ends,
+        # so one pass carries at most the chunk plus one bounded small request.
+        module, scheduler, running, memory = mocked_engine()
+        self.arm(module)
+        scheduler.max_prefill_tokens = 100  # the input cap must not be what stops s2
+        scheduler.waiting_queue = [Request('s1', 2), Request('s2', 2), Request('s3', 2),
+                                   Request('long', 12)]
+        batch, _ = scheduler._get_new_batch_prefill_raw(None, running)
+        self.assertEqual([r.rid for r in batch.reqs], ['chunk', 's1'])
+        self.assertEqual([r.rid for r in scheduler.waiting_queue], ['s2', 's3', 'long'])
+        self.assertEqual(len(memory.checks), 1)
+
     def test_rejected_small_candidate_does_not_block_smaller_one(self):
         module, scheduler, running, memory = mocked_engine(capacity=20)
         self.arm(module)

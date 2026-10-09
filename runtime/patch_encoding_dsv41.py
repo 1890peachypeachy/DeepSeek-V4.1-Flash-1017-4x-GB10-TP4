@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Sanitize textual image-placeholder tokens instead of rejecting the request.
 
-`encoding_dsv41` raises `ValueError` in two places when the literal image placeholder
-(`[image]`) appears in a message's *text*:
+`encoding_dsv41` raises `ValueError` in two places when its reserved image placeholder token
+(`IMAGE_PLACEHOLDER`, `<｜deepseek_image｜>` at the pinned revision) appears in a message's
+*text*; it is replaced with the plain text `[image]`:
 
 1. ``_validate_no_image_sp_tokens()`` -- string-form ``content`` / ``reasoning_content``.
    On the Anthropic endpoint this is the one that fires; the observed failure was HTTP 500
