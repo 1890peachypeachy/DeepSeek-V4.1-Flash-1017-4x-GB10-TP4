@@ -47,5 +47,24 @@ class HcaTests(unittest.TestCase):
             self.assertIn(node + ': ACTIVE HCAs: good', out)
         self.assertEqual(out.count('VISIT'), 3)
 
+class InterfaceTests(HcaTests):
+    def test_socket_interfaces_present(self):
+        (self.root / 'sys/class/net/eth0').mkdir(parents=True)
+        out = self.run_check('doctor_network_checks', GLOO_SOCKET_IFNAME='eth0',
+                             NCCL_SOCKET_IFNAME='=eth0', DOCTOR_STRICT='1')
+        self.assertIn('head: socket interfaces OK', out)
+
+    def test_missing_socket_warns(self):
+        out = self.run_check('doctor_network_checks', GLOO_SOCKET_IFNAME='missing-gloo',
+                             NCCL_SOCKET_IFNAME='missing-nccl')
+        for node in ('head', '10.0.0.2', '10.0.0.3'):
+            for name in ('missing-gloo', 'missing-nccl'):
+                self.assertIn(node + ': socket interface ' + name + ' missing', out)
+
+    def test_missing_socket_strict_fails(self):
+        out = self.run_check('if doctor_network_checks; then echo PASSED; else echo FAILED; fi',
+                             IB_HCA='good', DOCTOR_STRICT='1', GLOO_SOCKET_IFNAME='absent')
+        self.assertIn('FAILED', out)
+
 if __name__ == '__main__':
     unittest.main()
