@@ -36,7 +36,7 @@ COPY scripts /opt/dsv41/scripts
 COPY tests /opt/dsv41/tests
 COPY benchmarks /opt/dsv41/benchmarks
 RUN PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_anthropic_thinking.py \
- && DSV41_PREFILL_BYPASS_SOURCE_ROOT=/sgl-workspace/sglang/python/sglang/srt/managers PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_prefill_bypass.py \
+ && DSV41_PREFILL_BYPASS_SOURCE_ROOT=/sgl-workspace/sglang/python/sglang/srt/managers DSV41_PREFILL_BYPASS_EXPECT=supported PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_prefill_bypass.py \
  && PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_thinking_alias.py \
  && PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_max_new_tokens.py \
  && PYTHONPATH=/opt/dsv41/adapter python3 /opt/dsv41/tests/test_loop_abort.py \

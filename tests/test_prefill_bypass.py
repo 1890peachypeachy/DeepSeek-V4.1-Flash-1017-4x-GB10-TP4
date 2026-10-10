@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'adapter'))
 SOURCE_OVERRIDE = os.environ.get('DSV41_PREFILL_BYPASS_SOURCE_ROOT')
 STAGED = Path(SOURCE_OVERRIDE or ROOT / 'runtime/sglang-canary/python/sglang/srt/managers')
+EXPECT = os.environ.get('DSV41_PREFILL_BYPASS_EXPECT', 'supported').strip().lower()
+if EXPECT not in ('supported', 'unsupported'):
+    raise RuntimeError(f'invalid DSV41_PREFILL_BYPASS_EXPECT={EXPECT!r}')
 if SOURCE_OVERRIDE and not (STAGED / 'scheduler.py').is_file():
     raise RuntimeError(f'final scheduler source is missing under {STAGED}')
 
@@ -187,7 +190,8 @@ def mocked_engine(capacity=100, partial_cap=None):
     return module, scheduler, Batch(), memory
 
 
-@unittest.skipUnless((STAGED / 'scheduler.py').is_file(), 'stage pinned SGLang first')
+@unittest.skipUnless(EXPECT == 'supported' and (STAGED / 'scheduler.py').is_file(),
+                     'full hook tests require a supported final scheduler')
 class PrefillBypassTests(unittest.TestCase):
     def arm(self, module, value='4', scan='32'):
         if os.environ.get('DSV41_TEST_STOCK_PREFILL'):
@@ -372,6 +376,40 @@ class PrefillBypassTests(unittest.TestCase):
             original = module.PrefillAdder.add_one_req
             self.assertFalse(self.arm(module, scan=value))
             self.assertIs(module.PrefillAdder.add_one_req, original)
+
+
+if EXPECT == 'unsupported':
+    class UnsupportedFinalSchedulerTests(unittest.TestCase):
+        @staticmethod
+        def snapshot(cls):
+            return {name: id(value) for name, value in vars(cls).items()}
+
+        def test_off_is_inert_and_on_refuses_without_mutation(self):
+            # Import the actual final scheduler from the image. EXPECT=unsupported
+            # is an explicit stock-image contract, never an automatic fallback from
+            # the full canary tests above.
+            module = importlib.import_module('sglang.srt.managers.scheduler')
+            self.assertTrue(hasattr(module, 'Scheduler'))
+            self.assertTrue(hasattr(module, 'PrefillAdder'))
+            scheduler_before = self.snapshot(module.Scheduler)
+            adder_before = self.snapshot(module.PrefillAdder)
+
+            adapter = importlib.import_module('prefill_bypass')
+            with patch.dict(os.environ, {'DSV41_PREFILL_BYPASS': ''}):
+                self.assertFalse(adapter.install(module))
+            self.assertEqual(self.snapshot(module.Scheduler), scheduler_before)
+            self.assertEqual(self.snapshot(module.PrefillAdder), adder_before)
+
+            with patch.dict(os.environ, {'DSV41_PREFILL_BYPASS': '4',
+                                         'DSV41_PREFILL_BYPASS_SCAN': '32'}):
+                with self.assertLogs('prefill_bypass', level='WARNING') as logs:
+                    self.assertFalse(adapter.install(module))
+            refusal = '\n'.join(logs.output)
+            self.assertIn('refusing to arm', refusal)
+            self.assertRegex(refusal, r'(source drift|has no attribute)')
+            self.assertEqual(self.snapshot(module.Scheduler), scheduler_before)
+            self.assertEqual(self.snapshot(module.PrefillAdder), adder_before)
+            self.assertFalse(getattr(module.Scheduler, '_dsv41_prefill_bypass', False))
 
 if __name__ == '__main__':
     unittest.main()

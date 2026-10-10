@@ -145,3 +145,5 @@ class DockerfilePrefillBypassTests(unittest.TestCase):
                                if 'test_prefill_bypass.py' in line)
                 self.assertIn(source_root, command)
                 self.assertIn('PYTHONPATH=/opt/dsv41/adapter', command)
+                expected = 'unsupported' if name == 'Dockerfile' else 'supported'
+                self.assertIn(f'DSV41_PREFILL_BYPASS_EXPECT={expected}', command)
