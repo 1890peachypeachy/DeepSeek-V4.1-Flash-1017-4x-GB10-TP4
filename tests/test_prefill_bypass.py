@@ -12,7 +12,10 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'adapter'))
-STAGED = ROOT / 'runtime/sglang-canary/python/sglang/srt/managers'
+SOURCE_OVERRIDE = os.environ.get('DSV41_PREFILL_BYPASS_SOURCE_ROOT')
+STAGED = Path(SOURCE_OVERRIDE or ROOT / 'runtime/sglang-canary/python/sglang/srt/managers')
+if SOURCE_OVERRIDE and not (STAGED / 'scheduler.py').is_file():
+    raise RuntimeError(f'final scheduler source is missing under {STAGED}')
 
 
 class Result(enum.Enum):
@@ -35,6 +38,7 @@ class Request:
         self.session = None
         self.kv = types.SimpleNamespace(holds_mamba=False, mamba_cow_src_index=None, mamba_needs_clear=False)
         self.inflight_middle_chunks = 0
+        self.init_calls = 0
         self.set_extend_range(prefix, prefix + fresh)
 
     def set_extend_range(self, start, end):
@@ -42,7 +46,7 @@ class Request:
         self.extend_input_len = end-start
 
     def init_next_round_input(self, *args):
-        pass
+        self.init_calls += 1
 
     def needs_host_load_back(self):
         return False
@@ -185,11 +189,12 @@ def mocked_engine(capacity=100, partial_cap=None):
 
 @unittest.skipUnless((STAGED / 'scheduler.py').is_file(), 'stage pinned SGLang first')
 class PrefillBypassTests(unittest.TestCase):
-    def arm(self, module, value='4'):
+    def arm(self, module, value='4', scan='32'):
         if os.environ.get('DSV41_TEST_STOCK_PREFILL'):
             return False
         adapter = importlib.import_module('prefill_bypass')
-        with patch.dict(os.environ, {'DSV41_PREFILL_BYPASS': value}):
+        with patch.dict(os.environ, {'DSV41_PREFILL_BYPASS': value,
+                                     'DSV41_PREFILL_BYPASS_SCAN': scan}):
             return adapter.install(module)
 
     def test_small_admitted_during_chunk_and_queue_order_preserved(self):
@@ -205,20 +210,51 @@ class PrefillBypassTests(unittest.TestCase):
         self.assertEqual(module.PrefillAdder.latest.rem_chunk_tokens, -2)
         self.assertIsNone(module.PrefillAdder.latest.new_chunked_req)
 
-    def test_one_pass_adds_at_most_chunk_plus_limit(self):
-        # The forward-pass activation peak grows with the batch and the token-pool
-        # check does not see it. Once a bypass admission exhausts the chunk compute
-        # cap, the engine returns OTHER for that admitted request and the loop ends,
-        # so one pass carries at most the chunk plus one bounded small request.
+    def test_inflight_chunk_pass_has_explicit_total_fresh_token_bound(self):
         module, scheduler, running, memory = mocked_engine()
         self.arm(module)
-        scheduler.max_prefill_tokens = 100  # the input cap must not be what stops s2
+        # Keep the candidate loop open after a successful admission so this
+        # regression exercises the adapter's cumulative bound directly rather
+        # than relying on today's engine budget_state() stopping after s1.
+        module.PrefillAdder.budget_state = lambda self: Result.CONTINUE
+        scheduler.max_prefill_tokens = 100
         scheduler.waiting_queue = [Request('s1', 2), Request('s2', 2), Request('s3', 2),
                                    Request('long', 12)]
         batch, _ = scheduler._get_new_batch_prefill_raw(None, running)
-        self.assertEqual([r.rid for r in batch.reqs], ['chunk', 's1'])
-        self.assertEqual([r.rid for r in scheduler.waiting_queue], ['s2', 's3', 'long'])
-        self.assertEqual(len(memory.checks), 1)
+        self.assertEqual([r.rid for r in batch.reqs], ['chunk', 's1', 's2'])
+        self.assertEqual([r.rid for r in scheduler.waiting_queue], ['s3', 'long'])
+        # The regular chunk may use chunked_prefill_size tokens and all bypassed
+        # requests together may use at most DSV41_PREFILL_BYPASS fresh tokens.
+        self.assertLessEqual(sum(fresh for fresh, _ in memory.reservations),
+                             scheduler.chunked_prefill_size + 4)
+        self.assertEqual(module.PrefillAdder.latest._dsv41_bypass_remaining, 0)
+
+    def test_final_chunk_uses_stock_residual_token_bound(self):
+        def run(enabled):
+            module, scheduler, running, memory = mocked_engine()
+            scheduler.chunked_req = Request('final', 1)
+            scheduler.waiting_queue = [Request(f's{i}', 1) for i in range(1, 6)]
+            if enabled:
+                self.arm(module)
+            batch, _ = scheduler._get_new_batch_prefill_raw(None, running)
+            return ([r.rid for r in batch.reqs],
+                    [r.rid for r in scheduler.waiting_queue], memory.reservations)
+
+        enabled = run(True)
+        stock = run(False)
+        self.assertEqual(enabled, stock)
+        self.assertEqual(enabled[0], ['final', 's1', 's2', 's3'])
+        self.assertLessEqual(sum(fresh for fresh, _ in enabled[2]), 4)
+
+    def test_candidate_initialization_scan_is_bounded(self):
+        module, scheduler, running, memory = mocked_engine()
+        waiting = [Request(f'long{i}', 16) for i in range(100)]
+        scheduler.waiting_queue = waiting
+        self.arm(module, scan='3')
+        batch, _ = scheduler._get_new_batch_prefill_raw(None, running)
+        self.assertEqual([r.rid for r in batch.reqs], ['chunk'])
+        self.assertEqual(scheduler.waiting_queue, waiting)
+        self.assertEqual([r.init_calls for r in waiting[:4]], [1, 1, 1, 0])
 
     def test_rejected_small_candidate_does_not_block_smaller_one(self):
         module, scheduler, running, memory = mocked_engine(capacity=20)
@@ -328,6 +364,13 @@ class PrefillBypassTests(unittest.TestCase):
             module, scheduler, running, memory = mocked_engine()
             original = module.PrefillAdder.add_one_req
             self.assertFalse(self.arm(module, value))
+            self.assertIs(module.PrefillAdder.add_one_req, original)
+
+    def test_invalid_scan_limit_refuses_all_mutations(self):
+        for value in ('', '0', '-1', 'bad'):
+            module, scheduler, running, memory = mocked_engine()
+            original = module.PrefillAdder.add_one_req
+            self.assertFalse(self.arm(module, scan=value))
             self.assertIs(module.PrefillAdder.add_one_req, original)
 
 if __name__ == '__main__':

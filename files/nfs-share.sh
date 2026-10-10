@@ -74,6 +74,24 @@ nfs_rpc_ready() {
   timeout 3 rpcinfo -t "$ip" nfs 4 >/dev/null 2>&1
 }
 
+nfs_container_export_mount() {
+  local ctn="$1"
+  docker inspect --format '{{range .Mounts}}{{if eq .Destination "/export"}}{{printf "%s\t%s\n" .Type .Source}}{{end}}{{end}}' \
+    "$ctn" 2>/dev/null | head -1
+}
+
+nfs_require_current_model_export() {
+  local ctn="$1" mount_type source expected
+  IFS=$'\t' read -r mount_type source <<<"$(nfs_container_export_mount "$ctn" || true)"
+  expected="$(_abs "$MODEL_DIR")"
+  [[ -n "$source" ]] || die "$ctn is running but has no /export bind mount; refusing to reuse it"
+  [[ "$mount_type" == "bind" ]] || die \
+    "$ctn mounts /export as $mount_type, not a host bind; refusing to reuse it"
+  source="$(_abs "$source")"
+  [[ "$source" == "$expected" ]] || die \
+    "$ctn exports $source, but MODEL_DIR resolves to $expected; refusing to change a live exporter (stop it explicitly, then rerun share)"
+}
+
 nfs_write_exports() {
   local ctn="$1" clients="$2"
   docker exec -e NFS_CLIENTS="$clients" -e NFS_OPTS="${NFS_OPTS:-ro,sync,no_subtree_check,no_root_squash,insecure,fsid=0}" \
@@ -99,6 +117,11 @@ nfs_ensure_server() {
   live="$(nfs_live_container || true)"
 
   if [[ -n "$live" ]] && nfs_rpc_ready 127.0.0.1; then
+    if [[ "$live" == "$NFS_CONTAINER" ]]; then
+      # A same-named container can survive a profile/model-path change. Never
+      # silently make workers mount that stale checkpoint or replace a live server.
+      nfs_require_current_model_export "$live"
+    fi
     info "NFS already up ($live) — adding spark2/spark3 CX7 clients"
     nfs_write_exports "$live" "$clients"
     if [[ "$live" == "$NFS_CONTAINER" ]]; then

@@ -51,6 +51,15 @@ def install(module):
     except ValueError:
         logger.warning('DSV41_PREFILL_BYPASS: refusing to arm; expected a positive fresh-token limit')
         return False
+    scan_raw = os.environ.get('DSV41_PREFILL_BYPASS_SCAN', '32').strip()
+    try:
+        scan_limit = int(scan_raw)
+        if scan_limit <= 0:
+            raise ValueError
+    except ValueError:
+        logger.warning('DSV41_PREFILL_BYPASS: refusing to arm; '
+                       'DSV41_PREFILL_BYPASS_SCAN must be a positive candidate limit')
+        return False
     cls = getattr(module, 'Scheduler', None)
     adder_cls = getattr(module, 'PrefillAdder', None)
     if getattr(cls, '_dsv41_prefill_bypass', False):
@@ -66,18 +75,34 @@ def install(module):
         original_raw = cls._get_new_batch_prefill_raw
         source = sources[('Scheduler', '_get_new_batch_prefill_raw')]
         patches = [
-            ('    if self.chunked_req is not None:\n        self.chunked_req.init_next_round_input()\n',
-             '    adder._dsv41_bypass_pass = _dsv41_scan\n'
-             '    if self.chunked_req is not None:\n        self.chunked_req.init_next_round_input()\n'),
             ('    # Check if the grammar is ready in the grammar queue\n',
              '    _dsv41_scan = _dsv41_bypass_active(self)\n'
              '    # Check if the grammar is ready in the grammar queue\n'),
+            ('        self.chunked_req = adder.add_chunked_req(self.chunked_req)\n\n'
+             '    if self.enable_lora:\n',
+             '        self.chunked_req = adder.add_chunked_req(self.chunked_req)\n\n'
+             '    # Bypass only while the chunk remains in flight. A final chunk uses\n'
+             '    # the stock residual compute budget for ordinary queue admission.\n'
+             '    _dsv41_scan = _dsv41_scan and self.chunked_req is not None\n'
+             '    adder._dsv41_bypass_pass = _dsv41_scan\n'
+             '    adder._dsv41_bypass_remaining = _dsv41_limit if _dsv41_scan else 0\n\n'
+             '    if self.enable_lora:\n'),
+            ('    # Get requests from the waiting queue to a new prefill batch\n'
+             '    for req in self.waiting_queue:\n',
+             '    # Get requests from the waiting queue to a new prefill batch\n'
+             '    _dsv41_bypass_scanned = 0\n'
+             '    for req in self.waiting_queue:\n'),
             ('        req.init_next_round_input(self.tree_cache)\n',
+             '        if _dsv41_scan and _dsv41_bypass_scanned >= _dsv41_scan_limit:\n'
+             '            break\n'
              '        req.init_next_round_input(self.tree_cache)\n'
-             '        if _dsv41_scan and not (0 <= _dsv41_fresh_tokens(req) <= _dsv41_limit):\n'
-             '            continue\n'),
+             '        if _dsv41_scan:\n'
+             '            _dsv41_bypass_scanned += 1\n'
+             '            if not (0 <= _dsv41_fresh_tokens(req) <= _dsv41_limit):\n'
+             '                continue\n'),
             ('            break\n\n    if mamba_allocator is not None:',
-             '            if _dsv41_scan and not added:\n'
+             '            if (_dsv41_scan and not added\n'
+             '                    and _dsv41_bypass_scanned < _dsv41_scan_limit):\n'
              '                running_batch.batch_is_full = False\n'
              '                continue\n'
              '            break\n\n    if mamba_allocator is not None:'),
@@ -87,7 +112,8 @@ def install(module):
                 raise ValueError('candidate-loop anchor drift')
             source = source.replace(old, new)
         namespace = dict(original_raw.__globals__, _dsv41_bypass_active=bypass_active,
-                         _dsv41_fresh_tokens=fresh_tokens, _dsv41_limit=limit)
+                         _dsv41_fresh_tokens=fresh_tokens, _dsv41_limit=limit,
+                         _dsv41_scan_limit=scan_limit)
         exec(compile('from __future__ import annotations\n' + source,
                      '<dsv41-prefill-bypass>', 'exec'), namespace)
         patched_raw = namespace['_get_new_batch_prefill_raw']
@@ -113,6 +139,8 @@ def install(module):
         fresh = fresh_tokens(req)
         if not (0 <= fresh <= limit) or self.dllm_config is not None or req.sampling_params.ignore_eos:
             return original_add.__globals__['AddReqResult'].OTHER
+        if fresh > getattr(self, '_dsv41_bypass_remaining', 0):
+            return original_add.__globals__['AddReqResult'].OTHER
         saved = self.rem_chunk_tokens
         allowance = max(saved, self.ceil_paged_tokens(fresh))
         self.rem_chunk_tokens = allowance
@@ -121,7 +149,10 @@ def install(module):
             # The stock _select_prefill_admission calls _check_prefill_budget
             # before committing. Only the compute chunk cap is extended; the
             # pool, offsets, decode reserve, and page overhead stay untouched.
-            return original_add(self, req, has_chunked_req, truncation_align_size)
+            result = original_add(self, req, has_chunked_req, truncation_align_size)
+            if self.can_run_list and req is self.can_run_list[-1]:
+                self._dsv41_bypass_remaining -= fresh
+            return result
         finally:
             charged = allowance - self.rem_chunk_tokens
             self.rem_chunk_tokens = saved - charged
@@ -132,6 +163,7 @@ def install(module):
     adder_cls.add_one_req = add
     cls._get_new_batch_prefill_raw = patched_raw
     cls._dsv41_prefill_bypass = True
-    logger.warning('DSV41_PREFILL_BYPASS armed: at most %d fresh tokens per candidate; '
-                   'engine token-pool admission retained; fleet qualification pending', limit)
+    logger.warning('DSV41_PREFILL_BYPASS armed: at most %d total fresh tokens and %d '
+                   'candidates scanned per in-flight chunk pass; engine token-pool '
+                   'admission retained; fleet qualification pending', limit, scan_limit)
     return True

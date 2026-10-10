@@ -20,6 +20,7 @@ class NfsPortsTests(unittest.TestCase):
         out = shell('''
           nfs_live_container() { echo "$NFS_CONTAINER"; }
           nfs_rpc_ready() { return 0; }
+          nfs_container_export_mount() { printf 'bind\t%s\n' "$MODEL_DIR"; }
           nfs_write_exports() { :; }
           NFS_REUSE_EXPORT=1
           nfs_ensure_server
@@ -27,6 +28,45 @@ class NfsPortsTests(unittest.TestCase):
           echo "REUSE=$NFS_REUSE_EXPORT DEVICE=$NFS_DEVICE"
         ''', self.root)
         self.assertIn('REUSE=0 DEVICE=:/', out)
+
+    def test_own_exporter_with_stale_model_bind_is_refused_before_reconfigure(self):
+        out = shell('''
+          nfs_live_container() { echo "$NFS_CONTAINER"; }
+          nfs_rpc_ready() { return 0; }
+          nfs_container_export_mount() { printf 'bind\t%s\n' "$OLD_MODEL"; }
+          nfs_write_exports() { echo BAD_RECONFIGURE; }
+          if (nfs_ensure_server) 2>&1; then echo BAD_REUSE; else echo REFUSED; fi
+        ''', self.root, {'OLD_MODEL': str(self.root / 'old-model')})
+        self.assertIn('REFUSED', out)
+        self.assertNotIn('BAD_RECONFIGURE', out)
+        self.assertNotIn('BAD_REUSE', out)
+
+    def test_own_exporter_requires_host_bind_at_export(self):
+        out = shell('''
+          nfs_live_container() { echo "$NFS_CONTAINER"; }
+          nfs_rpc_ready() { return 0; }
+          nfs_container_export_mount() { printf 'volume\t%s\n' "$MODEL_DIR"; }
+          nfs_write_exports() { echo BAD_RECONFIGURE; }
+          if (nfs_ensure_server) 2>&1; then echo BAD_REUSE; else echo REFUSED; fi
+        ''', self.root)
+        self.assertIn('REFUSED', out)
+        self.assertNotIn('BAD_RECONFIGURE', out)
+        self.assertNotIn('BAD_REUSE', out)
+
+    def test_own_exporter_compares_canonical_model_paths(self):
+        actual = self.root / 'actual-model'
+        actual.mkdir()
+        alias = self.root / 'model-alias'
+        alias.symlink_to(actual, target_is_directory=True)
+        out = shell('''
+          nfs_live_container() { echo "$NFS_CONTAINER"; }
+          nfs_rpc_ready() { return 0; }
+          nfs_container_export_mount() { printf 'bind\t%s\n' "$ACTUAL_MODEL"; }
+          nfs_write_exports() { :; }
+          nfs_ensure_server
+          echo "REUSE=$NFS_REUSE_EXPORT"
+        ''', self.root, {'MODEL_DIR': str(alias), 'ACTUAL_MODEL': str(actual)})
+        self.assertIn('REUSE=0', out)
 
     def test_hf_cache_exporter_still_publishes_subtree(self):
         out = shell('''

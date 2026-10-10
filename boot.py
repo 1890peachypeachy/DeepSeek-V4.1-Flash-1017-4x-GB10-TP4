@@ -20,6 +20,8 @@ import threading
 import time
 import urllib.request
 
+from mxfp8_mode import mxfp8_backend_disabled
+
 REPO = 'deepseek-ai/DeepSeek-V4.1-Flash'
 REVISION = 'fb2764a5cf321eaa5070ca8f9e892818f477c16d'
 MODEL = Path(os.environ.get('MODEL_PATH', '/models/DeepSeek-V4.1-Flash'))
@@ -261,7 +263,7 @@ def _gpu_lines():
 
 def required_sglang_args(args, backend):
     """Keep the required dense-kernel route when users supply extra arguments."""
-    if backend.strip().lower() == 'off':
+    if mxfp8_backend_disabled(backend):
         return args
     flag = '--fp8-gemm-backend'
     result, values = [], []
