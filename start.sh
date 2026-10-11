@@ -705,7 +705,32 @@ _busy_gpu() {
   nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -q '[0-9]'
 }
 
+_validate_d2_recovery_lock_fd() {
+  case "${D2_RECOVERY_LOCK_FD:-}" in
+    ""|9) return 0 ;;
+    *)
+      err "D2_RECOVERY_LOCK_FD must be empty or exactly 9"
+      return 64
+      ;;
+  esac
+}
+
+_start_detached_head_log_follower() {
+  # A D2 controller deliberately lets start.sh and every boot-time child inherit
+  # its recovery flock.  The post-readiness reader is the sole exception: it is
+  # read-only and intentionally outlives this launcher, so retaining descriptor 9
+  # there would retain the recovery lock forever.
+  (
+    if [[ "${D2_RECOVERY_LOCK_FD:-}" == 9 ]]; then
+      exec 9>&-
+      unset D2_RECOVERY_LOCK_FD
+    fi
+    setsid docker logs -f --since 1s "$HEAD_CTN" >>"$SERVE_LOG" 2>&1 </dev/null &
+  ) 2>/dev/null
+}
+
 cmd_serve() {
+  _validate_d2_recovery_lock_fd
   DOCTOR_STRICT=0 cmd_doctor || true
   [[ -f "$MODEL_DIR/config.json" ]] || cmd_download
   ln -sfn "$MODEL_DIR" "$COMMON_MODEL"
@@ -878,7 +903,7 @@ $(worker_env_lines "$wip" "$wgid" "$rank")
       # this terminal (the TTY follower above is what was stopped). Without this the
       # file ends at readiness and a later failure leaves no trace once the
       # container is removed.
-      ( setsid docker logs -f --since 1s "$HEAD_CTN" >>"$SERVE_LOG" 2>&1 </dev/null & ) 2>/dev/null
+      _start_detached_head_log_follower
       echo
       info "API is up on :$PORT (smoke + warm-up passed) — engine keeps running, this script is done."
       cmd_status
