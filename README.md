@@ -28,20 +28,7 @@ Other work this profile builds on:
 
 ## Current results
 
-Production stack v2.4 (the last `EXTRA_CONTAINER_ENV` line of [`.env.tp4.example`](.env.tp4.example) plus the v2.4 production settings listed there, `EP_SIZE=1`, `Dockerfile.canary-roce` image), built from a clean tree on all four nodes, sparkDash 1.8.8: 256 new tokens, temperature 0, thinking off, idle fleet, 2026-10-12. KV pool 3.67M tokens, 1M context. Raw output: [`docs/results/validation-20261012-v24.txt`](docs/results/validation-20261012-v24.txt). Measurements from other fleets are linked, with their dates, in [`docs/community-results.md`](docs/community-results.md).
-
-v2.4 changes long-context behaviour, not decode speed: decode is the same as v2.3 within run-to-run noise (same-session A/B below).
-
-### Long context and multi-user behaviour (same session, same image)
-
-| | v2.3 settings | **v2.4** |
-|---|---:|---:|
-| cold prefill, 388K-token prompt | 93.4 s | **77.8 s** (4,976 tok/s) |
-| 969K-token needle (passphrase found) | 325 s | **235 s** |
-| short chat sent 8 s into a cold 400K prefill, time to answer | 80.0 s | **4.6 s** |
-| return to a 388K session after a second 388K session | 89.3 s (cache evicted) | **1.5 s** (100 % cached) |
-| lowest MemAvailable during the 1M prefill, head / workers | 5.9 / 6.7-7.1 GiB | 5.7 / 7.1-7.7 GiB |
-| KV pool | 5.77M tokens | 3.67M tokens |
+Production stack v2.4 (the last `EXTRA_CONTAINER_ENV` line of [`.env.tp4.example`](.env.tp4.example) with the v2.4 production block below it, `EP_SIZE=1`, `Dockerfile.canary-roce` image), built from a clean tree on all four nodes, sparkDash 1.8.8: 256 new tokens, temperature 0, thinking off, idle fleet, 2026-10-12. KV pool 3.67M tokens, 1M context. Raw output: [`docs/results/validation-20261012-v24.txt`](docs/results/validation-20261012-v24.txt). Measurements from other fleets are linked, with their dates, in [`docs/community-results.md`](docs/community-results.md).
 
 ### sparkDash, GPU clock capped at 2200 MHz
 
@@ -51,10 +38,10 @@ All results here are at the 2200 MHz SM clock cap this fleet runs with (`nvidia-
 
 | prompt type | c1 | c2 | c4 | c8 | c16 |
 |---|---:|---:|---:|---:|---:|
-| prose | **89.3** | 122.6 (61.9) | 164.9 (41.7) | 237.2 (30.8) | 340.1 (22.1) |
-| code | 131.0 | 170.3 (86.0) | 245.2 (62.8) | 305.7 (40.9) | 438.5 (29.3) |
-| structured | 158.3 | 178.4 (103.4) | 239.4 (69.9) | 292.2 (43.5) | 570.9 (44.7) |
-| json | 128.5 | 175.1 (90.3) | 280.2 (73.1) | 462.7 (59.2) | 629.7 (41.4) |
+| prose | **89.9** | 123.3 (63.3) | 164.9 (41.7) | 237.2 (30.8) | 341.3 (22.2) |
+| code | 131.0 | 175.8 (88.8) | 246.8 (63.2) | 306.8 (41.0) | 440.3 (29.4) |
+| structured | 158.7 | 178.9 (103.7) | 240.4 (70.2) | 292.2 (43.5) | 575.6 (44.7) |
+| json | 128.4 | 175.1 (90.3) | 314.0 (79.4) | 465.0 (59.4) | 632.8 (41.7) |
 
 **Prefill, cold, tok/s**
 
@@ -62,7 +49,21 @@ All results here are at the 2200 MHz SM clock cap this fleet runs with (`nvidia-
 |---:|---:|---:|---:|---:|
 | 4756 | 5790 | 5941 | 5969 | 5896 |
 
-**How these were measured.** sparkDash DecodeBench after two discarded warm-up prose c1 runs; c1 is the median of three runs, c4 the median of two, c2 / c8 / c16 one run each (c1 runs: prose 89.3 / 89.0 / 90.0; code 131.0 / 129.3 / 131.4; structured 154.5 / 158.8 / 158.3; json 123.4 / 129.5 / 128.5). Same-session A/B on the same image: the gate's prose c1 was 90.1 (v2.3 settings) against 90.0 (v2.4), and c8 / c16 with v2.3 settings measured prose 235.2 / 338.8, code 303.1 / 436.6, structured 290.9 / 567.1, json 468.1 / 630.8, the same as v2.4. Both were measured without the optional `DSV41_ENGRAM_DRM_NODE` (the display reservation is used by another tenant on this fleet); the v2.3 table in [docs/history.md](docs/history.md) was taken with it and is 3-9 % higher at c8-c16 on both stacks. Prefill: sparkDash prefill bench, cold, one run per length; its filler is one repeated token, so the Engram row cache inflates these numbers ([MiaAI-Lab#21](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/issues/21)); the long-context table above uses varied text. Long-context probes: [`scripts/v24_probe.py`](scripts/v24_probe.py).
+**How these were measured.** sparkDash DecodeBench after two discarded warm-up prose c1 runs; c1 is the median of three runs, c4 the median of two, c2 / c8 / c16 one run each. Each cell is the better of two full sweeps on two boots of the same final image (c1 runs: prose 89.9 / 89.0 / 90.0; code 131.0 / 129.3 / 131.4; structured 152.8 / 159.3 / 158.7; json 123.4 / 129.5 / 128.5). This fleet ran without the optional `DSV41_ENGRAM_DRM_NODE` (its display reservation is used by another tenant), which costs a few percent at c8-c16. Prefill: sparkDash prefill bench, cold, one run per length; its filler is one repeated token, so the Engram row cache inflates these numbers ([MiaAI-Lab#21](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks/issues/21)).
+
+### Long context and multi-user behaviour
+
+Varied-text prompts, cold (unique salt per prompt), [`scripts/v24_probe.py`](scripts/v24_probe.py):
+
+| | v2.4 |
+|---|---:|
+| cold prefill, 388K-token prompt | 77.8 s (4,976 tok/s) |
+| 969K-token needle (passphrase found) | 235 s |
+| short chat sent 8 s into a cold 400K prefill, time to answer | 4.6 s |
+| return to a 388K session after a second 388K session ran | 1.5 s (100 % cached) |
+| lowest MemAvailable during the 1M prefill, head / workers | 5.7 / 7.1-7.7 GiB |
+
+What v2.4 changed against v2.3 is in [CHANGELOG.md](CHANGELOG.md).
 
 **Quality and correctness gates** (final image, against the v2.3 settings booted the same morning as the reference):
 

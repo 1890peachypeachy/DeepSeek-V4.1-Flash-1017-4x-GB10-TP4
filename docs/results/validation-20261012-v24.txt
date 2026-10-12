@@ -102,3 +102,37 @@ GATE kld_short_cont 0.00608 PASS 559
 ## 60-minute c16 soak, final image (soak.py: mixed prompts, T 0/0.6/1.0, 30 % thinking, ~5 % 22-45K cold prompts)
 {"final": true, "ok": 2285, "err": 0, "empty": 0, "long_ok": 113, "p50_s": 21.1, "p99_s": 92.0}
 container restarts 0, OOMKilled false, kernel Xid/NV_ERR 0; MemAvailable minimum 12.9 / 13.4 / 13.6 / 13.5 GiB
+
+## sparkDash matrix, second sweep on the serving boot of the same final image (11:4x); README cells = better of the two sweeps
+{"label": "v24-serve-matrix", "type": "prose", "c": 1, "run": 0, "per": 89.9, "agg": 89.9, "t": "11:56:53"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 1, "run": 1, "per": 88.98, "agg": 88.98, "t": "11:56:57"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 1, "run": 2, "per": 90, "agg": 90, "t": "11:57:01"}
+{"label": "v24-serve-matrix", "type": "code", "c": 1, "run": 0, "per": 125.77, "agg": 125.77, "t": "11:57:05"}
+{"label": "v24-serve-matrix", "type": "code", "c": 1, "run": 1, "per": 131.54, "agg": 131.54, "t": "11:57:09"}
+{"label": "v24-serve-matrix", "type": "code", "c": 1, "run": 2, "per": 130.37, "agg": 130.37, "t": "11:57:13"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 1, "run": 0, "per": 152.75, "agg": 152.75, "t": "11:57:17"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 1, "run": 1, "per": 159.26, "agg": 159.26, "t": "11:57:21"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 1, "run": 2, "per": 158.65, "agg": 158.65, "t": "11:57:25"}
+{"label": "v24-serve-matrix", "type": "json", "c": 1, "run": 0, "per": 125.1, "agg": 125.1, "t": "11:57:29"}
+{"label": "v24-serve-matrix", "type": "json", "c": 1, "run": 1, "per": 129.46, "agg": 129.46, "t": "11:57:33"}
+{"label": "v24-serve-matrix", "type": "json", "c": 1, "run": 2, "per": 128.28, "agg": 128.28, "t": "11:57:37"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 2, "run": 0, "per": 63.26, "agg": 123.35, "t": "11:57:43"}
+{"label": "v24-serve-matrix", "type": "code", "c": 2, "run": 0, "per": 88.78, "agg": 175.78, "t": "11:57:47"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 2, "run": 0, "per": 103.68, "agg": 178.92, "t": "11:57:51"}
+{"label": "v24-serve-matrix", "type": "json", "c": 2, "run": 0, "per": 90.45, "agg": 175.01, "t": "11:57:55"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 4, "run": 0, "per": 41.48, "agg": 164.16, "t": "11:58:03"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 4, "run": 1, "per": 41.87, "agg": 165.69, "t": "11:58:11"}
+{"label": "v24-serve-matrix", "type": "code", "c": 4, "run": 0, "per": 62.89, "agg": 245.57, "t": "11:58:17"}
+{"label": "v24-serve-matrix", "type": "code", "c": 4, "run": 1, "per": 63.55, "agg": 248.05, "t": "11:58:23"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 4, "run": 0, "per": 69.6, "agg": 238.51, "t": "11:58:29"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 4, "run": 1, "per": 70.73, "agg": 242.33, "t": "11:58:35"}
+{"label": "v24-serve-matrix", "type": "json", "c": 4, "run": 0, "per": 77.65, "agg": 307.17, "t": "11:58:41"}
+{"label": "v24-serve-matrix", "type": "json", "c": 4, "run": 1, "per": 81.16, "agg": 320.92, "t": "11:58:45"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 8, "run": 0, "per": 30.76, "agg": 237, "t": "11:58:55"}
+{"label": "v24-serve-matrix", "type": "code", "c": 8, "run": 0, "per": 41, "agg": 306.82, "t": "11:59:03"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 8, "run": 0, "per": 43.5, "agg": 291.96, "t": "11:59:11"}
+{"label": "v24-serve-matrix", "type": "json", "c": 8, "run": 0, "per": 59.35, "agg": 465, "t": "11:59:17"}
+{"label": "v24-serve-matrix", "type": "prose", "c": 16, "run": 0, "per": 22.17, "agg": 341.27, "t": "11:59:31"}
+{"label": "v24-serve-matrix", "type": "code", "c": 16, "run": 0, "per": 29.41, "agg": 440.32, "t": "11:59:44"}
+{"label": "v24-serve-matrix", "type": "structured", "c": 16, "run": 0, "per": 44.7, "agg": 575.64, "t": "11:59:54"}
+{"label": "v24-serve-matrix", "type": "json", "c": 16, "run": 0, "per": 41.71, "agg": 632.75, "t": "12:00:02"}
