@@ -190,6 +190,36 @@ def mocked_engine(capacity=100, partial_cap=None):
     return module, scheduler, Batch(), memory
 
 
+@unittest.skipUnless((ROOT / '.env.tp4.example').is_file(), 'repository profile is not installed')
+class PrefillBypassProfileTests(unittest.TestCase):
+    def test_profile_documents_canary_requirement_next_to_bypass(self):
+        text = (ROOT / '.env.tp4.example').read_text()
+        comments = text[text.index('# Experimental small-request admission'):]
+        comments = comments[:comments.index('# Optional companion:')]
+        self.assertIn('Dockerfile.canary / Dockerfile.canary-roce', comments)
+        self.assertIn('stock-base Dockerfile does not support it', comments)
+
+
+class PrefillDelayerGuardTests(unittest.TestCase):
+    def setUp(self):
+        self.scheduler = types.SimpleNamespace(
+            chunked_req=object(), dllm_config=None,
+            enable_priority_preemption=False, enable_lora=False,
+            enable_hicache_storage=False, enable_hierarchical_cache=False,
+            enable_unified_cache_external_linker=False)
+        self.adapter = importlib.import_module('prefill_bypass')
+
+    def test_enabled_prefill_delayer_disables_bypass(self):
+        self.assertTrue(self.adapter.bypass_active(self.scheduler))
+        self.scheduler.enable_prefill_delayer = True
+        self.assertFalse(self.adapter.bypass_active(self.scheduler))
+
+    def test_active_pinned_prefill_delayer_disables_bypass(self):
+        self.assertTrue(self.adapter.bypass_active(self.scheduler))
+        self.scheduler.prefill_delayer = object()
+        self.assertFalse(self.adapter.bypass_active(self.scheduler))
+
+
 @unittest.skipUnless(EXPECT == 'supported' and (STAGED / 'scheduler.py').is_file(),
                      'full hook tests require a supported final scheduler')
 class PrefillBypassTests(unittest.TestCase):

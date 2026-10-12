@@ -14,7 +14,7 @@ docker_proxy_precheck() {
   local details
   details=$(timeout 5 docker info --format '{{json .}}') \
     || { err "cannot read docker daemon proxy configuration (5s timeout)"; return 1; }
-  printf '%s\n' "$details" | python3 -c "$DOCKER_PROXY_CHECK_CODE"
+  printf '%s\n' "$details" | python3 -c "$DOCKER_PROXY_CHECK_CODE" "$1"
 }
 
 base_image_ready() {
@@ -23,7 +23,7 @@ base_image_ready() {
     docker image inspect "$base" >/dev/null \
       || { err "SKIP_PULL=1: local base image $base missing; docker load/tag it first"; return 1; }
   elif [[ "$force" == 1 ]] || ! docker image inspect "$base" >/dev/null 2>&1; then
-    docker_proxy_precheck || return 1
+    docker_proxy_precheck "$base" || return 1
     docker pull --platform linux/arm64 "$base" || return 1
   fi
 }

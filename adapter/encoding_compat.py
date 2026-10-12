@@ -16,14 +16,19 @@ not install a server cap either — vLLM does the same fill — but every smoke 
 README example there sends ``max_tokens``. This adapter fills *and* clamps at
 ``DSV41_MAX_NEW_TOKENS`` (default 32768; 0 restores the uncapped engine behaviour).
 """
+import hashlib
+import inspect
 import logging
 import os
+import textwrap
 
 logger = logging.getLogger(__name__)
 
 # Publisher encoding/encoding.py REASONING_EFFORT_MAPPINGS, plus SGLang's xhigh alias.
 PUBLISHER_REASONING_EFFORT = {'low': 50, 'high': 75, 'xhigh': 75, 'max': 100}
 DEFAULT_MAX_NEW_TOKENS = 32768
+# Staged SGLang AnthropicThinkingParam._validate_thinking_shape, dedented inspect source.
+ANTHROPIC_THINKING_SHAPE_SHA256 = 'a94a9e59de88daa15d7ff86ea1b3c616d3b1b550ca90a5203c21b0aed363740e'
 
 
 def normalize_chat_template_kwargs(kwargs):
@@ -142,6 +147,13 @@ def install_anthropic_protocol(module):
     if getattr(entry.func, '_dsv41_optional_budget', False):
         return False
     original = entry.func
+    try:
+        source = textwrap.dedent(inspect.getsource(original))
+        if hashlib.sha256(source.encode()).hexdigest() != ANTHROPIC_THINKING_SHAPE_SHA256:
+            raise ValueError('AnthropicThinkingParam._validate_thinking_shape source drift')
+    except (TypeError, OSError, ValueError) as exc:
+        logger.warning('DSV41 Anthropic thinking: refusing to patch; %s; unchanged', exc)
+        return False
 
     def _validate_thinking_shape(self):
         if self.type == 'enabled' and self.budget_tokens is None:

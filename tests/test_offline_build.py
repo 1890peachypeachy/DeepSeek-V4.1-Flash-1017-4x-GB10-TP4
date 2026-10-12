@@ -38,13 +38,14 @@ $*"; }
     def test_proxy_precheck_precedes_every_pull(self):
         out = self.run_shell('''
           docker() { echo "DOCKER $*" >> "$LOG_DIR/commands"; }
-          docker_proxy_precheck() { echo PROXY_CHECK; }
+          docker_proxy_precheck() { echo "PROXY_CHECK $1"; }
           remote_on() { shift; if [[ "$1" == --timeout ]]; then shift 2; fi; bash -c "$(declare -f docker docker_proxy_precheck)
 $*"; }
           cmd_pull
           cat "$LOG_DIR/commands"
         ''')
         self.assertEqual(out.count('PROXY_CHECK'), 3)
+        self.assertEqual(out.count('PROXY_CHECK lmsysorg/sglang:dev-dsv41'), 3)
         self.assertEqual(out.count('DOCKER pull'), 3)
         self.assertLess(out.index('PROXY_CHECK'), out.index('DOCKER pull'))
 
@@ -89,8 +90,66 @@ class ProxyTests(unittest.TestCase):
     def test_unreachable_proxy_fails_clearly(self):
         with patch.object(self.proxy.socket, 'create_connection', side_effect=OSError('refused')):
             with self.assertRaisesRegex(RuntimeError, 'docker proxy proxy.example:3128 unreachable') as exc:
-                self.proxy.check_proxies({'HTTPProxy': 'http://secret:password@proxy.example:3128'})
+                self.proxy.check_proxies({'HTTPSProxy': 'http://secret:password@proxy.example:3128'})
             self.assertNotIn('password', str(exc.exception))
+
+    def test_only_https_proxy_applies_to_registry_pull(self):
+        with patch.object(self.proxy.socket, 'create_connection') as connect:
+            self.proxy.check_proxies({'HttpProxy': 'http://unused.example:3128',
+                                      'HttpsProxy': 'http://selected.example:8080'})
+            connect.assert_called_once_with(('selected.example', 8080), timeout=2)
+
+    def test_http_only_proxy_does_not_apply(self):
+        with patch.object(self.proxy.socket, 'create_connection') as connect:
+            self.proxy.check_proxies({'HTTPProxy': 'http://unused.example:3128'})
+            connect.assert_not_called()
+
+    def test_no_proxy_bypasses_default_registry(self):
+        with patch.object(self.proxy.socket, 'create_connection') as connect:
+            self.proxy.check_proxies({'HttpsProxy': 'http://proxy.example:3128',
+                                      'NoProxy': ' other.example, docker.io '})
+            connect.assert_not_called()
+
+    def test_registry_is_derived_from_image(self):
+        for image, host in (
+                ('ubuntu:latest', 'docker.io'),
+                ('library/ubuntu:latest', 'docker.io'),
+                ('lmsysorg/sglang:dev-dsv41', 'docker.io'),
+                ('docker.io/library/ubuntu:latest', 'docker.io'),
+                ('nvcr.io/nvidia/base@sha256:123', 'nvcr.io'),
+                ('registry.example:5000/org/base:v1', 'registry.example'),
+                ('localhost/base:v1', 'localhost')):
+            with self.subTest(image=image):
+                with patch.object(self.proxy.socket, 'create_connection') as connect:
+                    self.proxy.check_proxies({'HttpsProxy': 'http://proxy.example:3128',
+                                              'NoProxy': host}, image)
+                    connect.assert_not_called()
+
+    def test_no_proxy_exact_suffix_and_wildcard(self):
+        for bypass in ('registry.example', '.example', '*'):
+            with self.subTest(bypass=bypass):
+                with patch.object(self.proxy.socket, 'create_connection') as connect:
+                    self.proxy.check_proxies({'HttpsProxy': 'http://proxy.example:3128',
+                                              'NoProxy': bypass}, 'registry.example/base:v1')
+                    connect.assert_not_called()
+
+    def test_no_proxy_nonmatching_hosts_still_check_proxy(self):
+        for bypass in ('other.example', 'example', '.registry.example', '.other.example'):
+            with self.subTest(bypass=bypass):
+                with patch.object(self.proxy.socket, 'create_connection') as connect:
+                    self.proxy.check_proxies({'HttpsProxy': 'http://proxy.example:3128',
+                                              'NoProxy': bypass}, 'registry.example/base:v1')
+                    connect.assert_called_once_with(('proxy.example', 3128), timeout=2)
+
+    def test_cli_uses_image_argument(self):
+        import runpy
+        import sys
+        details = {'HttpsProxy': 'http://proxy.example:3128', 'NoProxy': '.example'}
+        with patch.object(self.proxy.socket, 'create_connection') as connect:
+            with patch.object(sys, 'stdin', io.StringIO(json.dumps(details))):
+                with patch.object(sys, 'argv', ['-c', 'registry.example/base:v1']):
+                    runpy.run_path(str(ROOT / 'scripts/docker_proxy_check.py'), run_name='__main__')
+            connect.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

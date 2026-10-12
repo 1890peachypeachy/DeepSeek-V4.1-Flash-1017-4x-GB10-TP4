@@ -1,9 +1,12 @@
 """Messages thinking compatibility against the real pinned protocol on CPU."""
+import ast
 import importlib.util
 import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'adapter'))
@@ -20,6 +23,58 @@ def load_protocol():
         return module
     from sglang.srt.entrypoints.anthropic import protocol
     return protocol
+
+
+@unittest.skipUnless(SOURCE.is_file(), 'staged protocol source is not installed')
+class AnthropicValidatorPinTests(unittest.TestCase):
+    def setUp(self):
+        tree = ast.parse(SOURCE.read_text())
+        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                   and node.name == 'AnthropicThinkingParam')
+        method = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
+                      and node.name == '_validate_thinking_shape')
+        namespace = {'model_validator': lambda **kwargs: lambda func: func}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(SOURCE), 'exec'), namespace)
+        self.entry = SimpleNamespace(func=namespace['_validate_thinking_shape'])
+        self.model = SimpleNamespace(
+            __pydantic_decorators__=SimpleNamespace(
+                model_validators={'_validate_thinking_shape': self.entry}),
+            model_rebuild=Mock())
+        self.protocol = SimpleNamespace(
+            AnthropicThinkingParam=self.model,
+            AnthropicMessagesRequest=SimpleNamespace(model_rebuild=Mock()),
+            AnthropicCountTokensRequest=SimpleNamespace(model_rebuild=Mock()))
+
+    def assert_unchanged(self, original):
+        self.assertIs(self.entry.func, original)
+        for model in vars(self.protocol).values():
+            model.model_rebuild.assert_not_called()
+
+    def test_pinned_validator_is_accepted(self):
+        self.assertTrue(encoding_compat.install_anthropic_protocol(self.protocol))
+        param = SimpleNamespace(type='enabled', budget_tokens=None)
+        self.assertIs(self.entry.func(param), param)
+        with self.assertRaises(ValueError):
+            self.entry.func(SimpleNamespace(type='enabled', budget_tokens=512))
+        for model in vars(self.protocol).values():
+            model.model_rebuild.assert_called_once_with(force=True)
+
+    def test_same_named_validator_drift_changes_nothing(self):
+        def _validate_thinking_shape(self):
+            raise ValueError('additional upstream validation')
+
+        self.entry.func = _validate_thinking_shape
+        with self.assertLogs(encoding_compat.logger, level='WARNING') as logs:
+            self.assertFalse(encoding_compat.install_anthropic_protocol(self.protocol))
+        self.assertIn('source drift', '\n'.join(logs.output))
+        self.assert_unchanged(_validate_thinking_shape)
+
+    def test_unavailable_validator_source_changes_nothing(self):
+        original = self.entry.func
+        with patch('inspect.getsource', side_effect=OSError('source unavailable')):
+            with self.assertLogs(encoding_compat.logger, level='WARNING'):
+                self.assertFalse(encoding_compat.install_anthropic_protocol(self.protocol))
+        self.assert_unchanged(original)
 
 
 class AnthropicThinkingTests(unittest.TestCase):

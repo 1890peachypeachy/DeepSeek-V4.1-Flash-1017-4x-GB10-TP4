@@ -33,6 +33,10 @@ def bypass_active(scheduler):
     # experiment to the ordinary TP scheduler and its synchronized token pools.
     return (scheduler.chunked_req is not None
             and scheduler.dllm_config is None
+            # The delayer's timeout uses rank-local time. The staged scheduler
+            # stores the enabled delayer object rather than a boolean flag.
+            and not getattr(scheduler, 'enable_prefill_delayer', False)
+            and not getattr(scheduler, 'prefill_delayer', None)
             and not scheduler.enable_priority_preemption
             and not scheduler.enable_lora
             and not scheduler.enable_hicache_storage

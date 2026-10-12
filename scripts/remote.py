@@ -18,8 +18,13 @@ def load_dotenv(path: str) -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            v = v.strip().strip('"').strip("'")
-            v = os.path.expandvars(v)
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] == "'":
+                v = v[1:-1]
+            else:
+                if len(v) >= 2 and v[0] == v[-1] == '"':
+                    v = v[1:-1]
+                v = os.path.expandvars(v)
             os.environ.setdefault(k.strip(), v)
 
 
