@@ -176,6 +176,9 @@ mkdir -p "$LOG_DIR" "$STATE_DIR"
 source "$ROOT/files/nfs-share.sh"
 # shellcheck source=files/nccl.sh
 source "$ROOT/files/nccl.sh"
+source "$ROOT/files/doctor-network.sh"
+source "$ROOT/files/image-build.sh"
+DOCKER_PROXY_CHECK_CODE="$(cat "$ROOT/scripts/docker_proxy_check.py")"
 
 remote_on() {
   local host="$1"; shift
@@ -199,13 +202,19 @@ ssh_rsync_e() {
 }
 
 ensure_ssh_keys() {
-  local pub host
+  local pub host key_type key_blob
   pub=$(cat "${SSH_IDENTITY}.pub" 2>/dev/null || true)
-  [[ -n "$pub" ]] || die "Missing ${SSH_IDENTITY}.pub"
+  if [[ -z "$pub" ]]; then
+    pub=$(ssh-keygen -y -P '' -f "$SSH_IDENTITY" </dev/null) \
+      || die "Missing or empty ${SSH_IDENTITY}.pub; cannot derive public key from $SSH_IDENTITY non-interactively"
+  fi
+  read -r key_type key_blob _ <<< "$pub"
   for host in "${WORKER_HOSTS[@]}"; do
     remote_on "$host" "mkdir -p ~/.ssh && chmod 700 ~/.ssh
       touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
-      grep -qxF '$pub' ~/.ssh/authorized_keys || echo '$pub' >> ~/.ssh/authorized_keys"
+      awk -v type=$(printf '%q' "$key_type") -v blob=$(printf '%q' "$key_blob") \
+        '\$1 == type && \$2 == blob { found=1 } END { exit !found }' ~/.ssh/authorized_keys ||
+        printf '%s\\n' $(printf '%q' "$pub") >> ~/.ssh/authorized_keys"
   done
 }
 
@@ -226,6 +235,17 @@ api_key() {
     ''|none|off|dummy|0) echo "" ;;
     *) echo "$v" ;;
   esac
+}
+
+resolved_gid() {
+  local detected="$1"
+  if [[ -n "${NCCL_IB_GID_INDEX:-}" ]]; then
+    echo "$NCCL_IB_GID_INDEX"
+  elif [[ -n "$detected" ]]; then
+    echo "$detected"
+  elif [[ "${NCCL_IB_GID_AUTO:-0}" != 1 ]]; then
+    echo 3
+  fi
 }
 
 gid_index_local() {
@@ -336,8 +356,8 @@ docker_common_args() {
     -e "DSV41_TP_PAD=${DSV41_TP_PAD:-1}"
     -e "VLLM_HOST_IP=$hip"
     -e "HOST_IP=$hip"
-    -e "NCCL_IB_GID_INDEX=$gid"
   )
+  [[ -z "$gid" ]] || _a+=(-e "NCCL_IB_GID_INDEX=$gid")
   if [[ -n "${API_KEY}" ]]; then
     _a+=(-e "API_KEY=$API_KEY")
   fi
@@ -345,6 +365,8 @@ docker_common_args() {
     _a+=(-e "EXTRA_SGLANG_ARGS=$EXTRA_SGLANG_ARGS")
   fi
   # Generic passthrough so an experiment is one .env line, not a launcher edit.
+  [[ "${DSV41_TRITON_CACHE:-0}" != 1 ]] || _a+=(-e "TRITON_CACHE_DIR=/state/triton")
+
   # EXTRA_CONTAINER_ENV="FOO=1 BAR=2" (whitespace separated KEY=VALUE pairs).
   if [[ -n "${EXTRA_CONTAINER_ENV:-}" ]]; then
     local _kv
@@ -387,6 +409,7 @@ worker_env_lines() {
   local wip="$1" wgid="$2" rank="$3"
   # Mirror of the head's EXTRA_CONTAINER_ENV passthrough; every rank must agree.
   local _extra_env="-e DSV41_EXTRA_ENV=1" _kv
+  [[ "${DSV41_TRITON_CACHE:-0}" != 1 ]] || _extra_env+=" -e TRITON_CACHE_DIR=/state/triton"
   for _kv in ${EXTRA_CONTAINER_ENV:-}; do _extra_env+=" -e $(printf '%q' "$_kv")"; done
   # Ring environment is mirrored to every rank. The leading space comes from here,
   # not from switchless_ring_env_string, so that with the switch off this line is
@@ -440,7 +463,7 @@ worker_env_lines() {
         -e DSV41_LOOP_REPEATS=${DSV41_LOOP_REPEATS:-4} \\
         -e DSV41_LOOP_LINE_REPEATS=${DSV41_LOOP_LINE_REPEATS:-8} \\
         -e PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:False} \\
-        -e NCCL_IB_GID_INDEX=$wgid \\
+        ${wgid:+-e NCCL_IB_GID_INDEX=$wgid} \\
         -e CUDA_DEVICE_ORDER=PCI_BUS_ID \\
         -e SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE=0 \\
         -e DSV41_TP_PAD=${DSV41_TP_PAD:-1} \\
@@ -459,6 +482,7 @@ cmd_doctor() {
   echo "offload:  $OFFLOAD_MODE  cache=${DSV41_CACHE_GIB}GiB  spec=$SPEC_ALGO-$DSPARK_BLOCK_SIZE  port=$PORT"
   echo
   local ok=0
+  doctor_network_checks || ok=1
   command -v docker >/dev/null || { warn "docker missing on head"; ok=1; }
   command -v nvidia-smi >/dev/null && info "GPU: $(nvidia-smi -L | head -1)" || { warn "nvidia-smi missing"; ok=1; }
   [[ -f "$SSH_IDENTITY" ]] && info "SSH key $SSH_IDENTITY" || { warn "SSH key missing"; ok=1; }
@@ -600,25 +624,27 @@ cmd_download() {
 cmd_pull() {
   info "=== pull $BASE_IMAGE on all nodes ==="
   ensure_ssh_keys
-  docker pull --platform linux/arm64 "$BASE_IMAGE"
+  local base
+  base=$(build_base_image) || return 1
+  base_image_ready "$base" 1 || return 1
   local h
   for h in "${WORKER_HOSTS[@]}"; do
     info "pulling on $h ..."
     remote_on "$h" --timeout "${PULL_TIMEOUT:-0}" \
-      "docker pull --platform linux/arm64 $(printf '%q' "$BASE_IMAGE")"
+      "$(base_image_worker_command "$base" 1)" || return 1
   done
   info "base image present on all nodes"
 }
 
 cmd_build() {
   info "=== build $IMAGE from $ROOT ($BUILD_DOCKERFILE) ==="
-  if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-    cmd_pull
-  fi
+  local base
+  base=$(build_base_image) || return 1
+  base_image_ready "$base" || return 1
   local dockerfile="$BUILD_DOCKERFILE"
   case "$dockerfile" in /*) die "BUILD_DOCKERFILE must be inside the repository (got $dockerfile)";; esac
   [[ -f "$ROOT/$dockerfile" ]] || die "no such Dockerfile: $ROOT/$dockerfile"
-  docker build -f "$ROOT/$dockerfile" -t "$IMAGE" $BUILD_ARGS "$ROOT"
+  docker build -f "$ROOT/$dockerfile" -t "$IMAGE" $BUILD_ARGS --build-arg "BASE_IMAGE=$base" --pull=false "$ROOT"
   local img_arch
   img_arch=$(docker image inspect -f '{{.Architecture}}' "$IMAGE")
   [[ "$img_arch" == "arm64" ]] || die "expected arm64 image, got $img_arch"
@@ -639,8 +665,8 @@ cmd_build() {
       "$ROOT/" "${WORKER_USER}@${h}:${WORKER_DIR}/"
     info "docker build on $h ..."
     remote_on "$h" --timeout "${BUILD_TIMEOUT:-0}" \
-      "docker image inspect $(printf '%q' "$BASE_IMAGE") >/dev/null || docker pull --platform linux/arm64 $(printf '%q' "$BASE_IMAGE")
-       cd $(printf '%q' "$WORKER_DIR") && docker build -f $(printf '%q' "$dockerfile") -t $(printf '%q' "$IMAGE") $BUILD_ARGS ."
+      "$(base_image_worker_command "$base")
+       cd $(printf '%q' "$WORKER_DIR") && docker build -f $(printf '%q' "$dockerfile") -t $(printf '%q' "$IMAGE") $BUILD_ARGS --build-arg $(printf '%q' "BASE_IMAGE=$base") --pull=false ."
   done
   info "overlay image on all 3 nodes"
 }
@@ -661,6 +687,8 @@ cmd_share() {
     if nfs_worker_has_model "$h"; then
       info "$h: $NFS_VOLUME has config.json"
     else
+      remote_ok_on "$h" "docker image inspect $(printf '%q' "$IMAGE")" \
+        || die "Serving image $IMAGE is not on $h yet. Run ./start.sh build first; share probes the NFS volume with that image."
       die "$h cannot see the checkpoint over NFS. Check ACL (10.0.23.0/24 for spark3) and docker logs of the nfs exporter."
     fi
     i=$((i + 1))
@@ -677,7 +705,32 @@ _busy_gpu() {
   nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -q '[0-9]'
 }
 
+_validate_d2_recovery_lock_fd() {
+  case "${D2_RECOVERY_LOCK_FD:-}" in
+    ""|9) return 0 ;;
+    *)
+      err "D2_RECOVERY_LOCK_FD must be empty or exactly 9"
+      return 64
+      ;;
+  esac
+}
+
+_start_detached_head_log_follower() {
+  # A D2 controller deliberately lets start.sh and every boot-time child inherit
+  # its recovery flock.  The post-readiness reader is the sole exception: it is
+  # read-only and intentionally outlives this launcher, so retaining descriptor 9
+  # there would retain the recovery lock forever.
+  (
+    if [[ "${D2_RECOVERY_LOCK_FD:-}" == 9 ]]; then
+      exec 9>&-
+      unset D2_RECOVERY_LOCK_FD
+    fi
+    setsid docker logs -f --since 1s "$HEAD_CTN" >>"$SERVE_LOG" 2>&1 </dev/null &
+  ) 2>/dev/null
+}
+
 cmd_serve() {
+  _validate_d2_recovery_lock_fd
   DOCTOR_STRICT=0 cmd_doctor || true
   [[ -f "$MODEL_DIR/config.json" ]] || cmd_download
   ln -sfn "$MODEL_DIR" "$COMMON_MODEL"
@@ -735,10 +788,10 @@ cmd_serve() {
   local GID_HEAD gi g
   local -a WORKER_GIDS=()
   GID_HEAD=$(gid_index_local "$HEAD_IP" 2>/dev/null || true)
-  GID_HEAD="${GID_HEAD:-${NCCL_IB_GID_INDEX:-3}}"
+  GID_HEAD="$(resolved_gid "$GID_HEAD")"
   for gi in "${!WORKER_IPS[@]}"; do
     g=$(gid_index_remote "${WORKER_HOSTS[$gi]}" "${WORKER_IPS[$gi]}" | tr -d '\r' || true)
-    WORKER_GIDS+=("${g:-${NCCL_IB_GID_INDEX:-3}}")
+    WORKER_GIDS+=("$(resolved_gid "$g")")
   done
   info "RoCEv2 GID indexes: head=$GID_HEAD workers=${WORKER_GIDS[*]}"
 
@@ -850,7 +903,7 @@ $(worker_env_lines "$wip" "$wgid" "$rank")
       # this terminal (the TTY follower above is what was stopped). Without this the
       # file ends at readiness and a later failure leaves no trace once the
       # container is removed.
-      ( setsid docker logs -f --since 1s "$HEAD_CTN" >>"$SERVE_LOG" 2>&1 </dev/null & ) 2>/dev/null
+      _start_detached_head_log_follower
       echo
       info "API is up on :$PORT (smoke + warm-up passed) — engine keeps running, this script is done."
       cmd_status
@@ -962,6 +1015,16 @@ shift || true
 cmd_pack() {
   local src
   src=$(model_src)
+  if [[ "$NFS_SHARE" == 1 ]]; then
+    local h need_share=0
+    for h in "${WORKER_HOSTS[@]}"; do
+      nfs_worker_has_model "$h" || need_share=1
+    done
+    if [[ "$need_share" == 1 ]]; then
+      info "a worker cannot see the checkpoint over NFS — running share first"
+      cmd_share
+    fi
+  fi
   info "packing Engram shards: head $ENGRAM_DIR, workers $WORKER_ENGRAM_DIR"
   mkdir -p "$ENGRAM_DIR"
   docker run --rm --network host \

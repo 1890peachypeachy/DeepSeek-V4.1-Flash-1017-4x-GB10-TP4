@@ -65,6 +65,9 @@ class EngramLoader(importlib.abc.Loader):
         elif module.__name__ == 'sglang.srt.entrypoints.openai.serving_chat':
             from encoding_compat import install_serving_chat
             install_serving_chat(module)
+        elif module.__name__ == 'sglang.srt.entrypoints.anthropic.protocol':
+            from encoding_compat import install_anthropic_protocol
+            install_anthropic_protocol(module)
         elif module.__name__ == 'sglang.srt.model_loader.weight_utils':
             # Gated on DSV41_FAST_LOAD: this rank's tensors are read eagerly by a thread
             # pool instead of page-faulted through the loader's mmap (adapter/fast_load.py).
@@ -239,6 +242,10 @@ class EngramLoader(importlib.abc.Loader):
             # raising inside the forward under decoder SWA bounded replay (all ranks exit).
             from replay_guard import install as install_replay_guard
             install_replay_guard(module)
+        elif module.__name__ == 'sglang.srt.managers.scheduler':
+            if os.environ.get('DSV41_PREFILL_BYPASS', '').strip():
+                from prefill_bypass import install as install_prefill_bypass
+                install_prefill_bypass(module)
         elif module.__name__ == 'sglang.srt.managers.schedule_batch':
             from loop_abort import install as install_loop_abort
             install_loop_abort(module)
@@ -265,6 +272,7 @@ class EngramFinder(importlib.abc.MetaPathFinder):
                             'sglang.srt.layers.attention.deepseek_v4_backend',
                             'sglang.srt.entrypoints.openai.encoding_dsv41',
                             'sglang.srt.entrypoints.openai.serving_chat',
+                            'sglang.srt.entrypoints.anthropic.protocol',
                             'sglang.srt.model_loader.weight_utils',
                             'sglang.srt.models.deepseek_v4',
                             'sglang.srt.models.deepseek_v4_dspark',
@@ -272,6 +280,7 @@ class EngramFinder(importlib.abc.MetaPathFinder):
                             'sglang.srt.speculative.dspark_components.dspark_draft_sampler',
                             'sglang.kernels.ops.speculative.dspark.dspark_accept',
                             'sglang.srt.managers.schedule_batch',
+                            'sglang.srt.managers.scheduler',
                             'sglang.srt.managers.tokenizer_manager',
                             'sglang.kernels.ops.moe.moe_fused_gate',
                             'sglang.srt.speculative.dspark_components.dspark_draft',
