@@ -272,6 +272,9 @@ class GidIndexTests(unittest.TestCase):
 
     IPV4 = "0000:0000:0000:0000:0000:ffff:c0a8:32a8"
     IPV6 = "fe80:0000:0000:0000:0000:0000:0000:0001"
+    OTHER_IPV4 = "0000:0000:0000:0000:0000:ffff:c0a8:32a9"
+    # the dotted address IPV4 maps, as the launcher would detect it
+    ADDRESS = ".".join(str(b) for b in bytes.fromhex(IPV4[-9:].replace(":", "")))
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "tests")
@@ -305,6 +308,94 @@ class GidIndexTests(unittest.TestCase):
         out = check(nccl_shell(f'ring_gid_index {sysfs}',
                                {"NCCL_IB_GID_INDEX": "5", "IB_HCA": "rocep1s0f0"}))
         self.assertEqual(out.strip(), "5")
+
+    def test_auto_accepts_a_different_index_per_port(self):
+        """NCCL_IB_GID_AUTO=1 and no detected index: nothing is pinned, NCCL picks one per device."""
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"0": self.IPV6, "3": self.IPV4},
+                            "rocep1s0f1": {"3": self.IPV6, "5": self.OTHER_IPV4}})
+        out = check(nccl_shell(f'ring_gid_index {sysfs}', {"NCCL_IB_GID_AUTO": "1"}))
+        self.assertEqual(out.strip(), "auto")
+
+    def test_auto_validates_a_detected_index_on_every_port(self):
+        """resolved_gid pins a detected index even with AUTO=1, so the preflight checks that index."""
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"0": self.IPV6, "3": self.IPV4},
+                            "rocep1s0f1": {"3": self.IPV6, "5": self.OTHER_IPV4}})
+        result = nccl_shell(f'ring_gid_index {sysfs} {self.ADDRESS}', {"NCCL_IB_GID_AUTO": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no common IPv4 RoCE v2 GID", result.stderr)
+
+    def test_auto_detection_skips_port_qualified_entries(self):
+        """The launcher detects on port 1 of plain names only, so a:2,b:2 pins nothing."""
+        directory = Path(self.tmp.name)
+        for hca, table in {"a": {"3": self.IPV4}, "b": {"3": self.IPV6, "5": self.OTHER_IPV4}}.items():
+            base = directory / hca / "ports" / "2"
+            (base / "gid_attrs" / "types").mkdir(parents=True)
+            (base / "gids").mkdir()
+            (base / "state").write_text("4: ACTIVE\n")
+            for index, gid in table.items():
+                (base / "gids" / index).write_text(gid + "\n")
+                (base / "gid_attrs" / "types" / index).write_text("RoCE v2\n")
+        out = check(nccl_shell(f'ring_gid_index {directory} {self.ADDRESS}',
+                               {"NCCL_IB_GID_AUTO": "1", "IB_HCA": "a:2,b:2"}))
+        self.assertEqual(out.strip(), "auto")
+
+    def test_auto_detection_reads_ib_hca_as_the_launcher_does(self):
+        """The launcher does not strip a leading '=', so '=a,b' detects nothing on a."""
+        sysfs = self.build(Path(self.tmp.name),
+                           {"a": {"0": self.IPV6, "3": self.IPV4},
+                            "b": {"3": self.IPV6, "5": self.OTHER_IPV4}})
+        out = check(nccl_shell(f'ring_gid_index {sysfs} {self.ADDRESS}',
+                               {"NCCL_IB_GID_AUTO": "1", "IB_HCA": "=a,b"}))
+        self.assertEqual(out.strip(), "auto")
+        result = nccl_shell(f'ring_gid_index {sysfs} {self.ADDRESS}',
+                            {"NCCL_IB_GID_AUTO": "1", "IB_HCA": "a,b"})
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_auto_reports_a_detected_index(self):
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"0": self.IPV6, "3": self.IPV4},
+                            "rocep1s0f1": {"0": self.IPV6, "3": self.OTHER_IPV4}})
+        out = check(nccl_shell(f'ring_gid_index {sysfs} {self.ADDRESS}', {"NCCL_IB_GID_AUTO": "1"}))
+        self.assertEqual(out.strip(), "3")
+
+    def test_auto_still_needs_an_ipv4_gid_on_every_port(self):
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"3": self.IPV4},
+                            "rocep1s0f1": {"3": self.IPV6,
+                                           "5": "0000:0000:0000:0000:0000:ffff:0000:0000"}})
+        result = nccl_shell(f'ring_gid_index {sysfs}', {"NCCL_IB_GID_AUTO": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rocep1s0f1", result.stderr)
+
+    def test_an_explicit_override_wins_over_auto(self):
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"3": self.IPV4, "5": self.IPV4}})
+        out = check(nccl_shell(f'ring_gid_index {sysfs}',
+                               {"NCCL_IB_GID_AUTO": "1", "NCCL_IB_GID_INDEX": "5",
+                                "IB_HCA": "rocep1s0f0"}))
+        self.assertEqual(out.strip(), "5")
+
+    def test_worker_payload_carries_auto(self):
+        sysfs = self.build(Path(self.tmp.name),
+                           {"rocep1s0f0": {"3": self.IPV4},
+                            "rocep1s0f1": {"5": self.IPV4}})
+        payload = check(nccl_shell("nccl_worker_settings", {"NCCL_IB_GID_AUTO": "1"}))
+        result = subprocess.run(["bash", "-c", payload + f"\nring_gid_index {sysfs}"],
+                                env={"PATH": os.environ["PATH"]},
+                                text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "auto")
+
+    def test_doctor_accepts_a_worker_auto_answer(self):
+        source = (ROOT / "start.sh").read_text()
+        doctor = source[source.index("cmd_doctor()"):]
+        doctor = doctor[:doctor.index("\n}\n")]
+        self.assertIn('[[ "$wgid" =~ ^([0-9]+|auto)$ ]]', doctor)
+        # the preflight learns each host's address, so it validates what serve will pin
+        self.assertIn('nccl_preflight "$HEAD_IP"', doctor)
+        self.assertIn('nccl_preflight $(printf \'%q\' "${WORKER_IPS[$wi]:-}")', doctor)
 
     def test_rejects_an_inactive_port(self):
         sysfs = self.build(Path(self.tmp.name), {"rocep1s0f0": {"3": self.IPV4}})

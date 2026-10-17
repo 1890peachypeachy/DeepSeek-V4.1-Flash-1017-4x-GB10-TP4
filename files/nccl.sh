@@ -151,10 +151,15 @@ nccl_validate_config() {
 
 # MANAGEMENT IPs need not appear in the CX7 GID table. Find a common, nonzero IPv4
 # RoCE v2 index on all explicitly selected ports, or validate the override.
+# With NCCL_IB_GID_AUTO=1 and no override, resolved_gid still pins the index that
+# carries this host's address (the optional second argument) when there is one;
+# that index is validated as above (detected the way gid_index_local/gid_index_remote
+# do: raw IB_HCA names, port 1 only). Only when none is found is no index pinned:
+# NCCL then picks one per device, each port only needs its own, and this prints 'auto'.
 # The optional sysfs root is used by host-side fixtures.
 ring_gid_index() {
-  local sysfs="${1:-/sys/class/infiniband}" entry hca port state base g idx valid gid
-  local -a entries=() ports=() candidates=()
+  local sysfs="${1:-/sys/class/infiniband}" ip="${2:-}" entry hca port state base g idx valid gid hex
+  local -a entries=() raw=() ports=() candidates=()
   IFS=, read -r -a entries <<<"${IB_HCA#=}"
   for entry in "${entries[@]}"; do
     if [[ ! "$entry" =~ ^[a-zA-Z0-9_]+(:[1-9][0-9]*)?$ ]]; then
@@ -172,6 +177,29 @@ ring_gid_index() {
     ports+=("$base")
   done
   [[ ${#ports[@]} -gt 0 ]] || { echo 'Ring: IB_HCA is empty' >&2; return 1; }
+  if [[ -z "${NCCL_IB_GID_INDEX:-}" && "${NCCL_IB_GID_AUTO:-0}" == 1 ]]; then
+    if [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+      hex=$(printf '%02x%02x:%02x%02x' ${ip//./ })
+      # The launcher splits IB_HCA as is (no '=' strip, no :port) and skips names
+      # that are not a device, so '=a' or 'a:2' detect nothing there either.
+      IFS=, read -r -a raw <<<"$IB_HCA"
+      for entry in "${raw[@]}"; do
+        [[ -d "$sysfs/$entry" ]] || continue
+        base="$sysfs/$entry/ports/1"
+        for g in "$base"/gids/*; do
+          idx="${g##*/}"
+          [[ "$(cat "$base/gid_attrs/types/$idx" 2>/dev/null)" == 'RoCE v2' ]] || continue
+          [[ "$(cat "$g" 2>/dev/null)" == *ffff:"$hex" ]] || continue
+          NCCL_IB_GID_INDEX="$idx" NCCL_IB_GID_AUTO=0 ring_gid_index "$sysfs"
+          return
+        done
+      done
+    fi
+    for entry in "${entries[@]}"; do
+      IB_HCA="$entry" NCCL_IB_GID_AUTO=0 ring_gid_index "$sysfs" >/dev/null || return 1
+    done
+    printf 'auto\n'; return 0
+  fi
   if [[ -n "${NCCL_IB_GID_INDEX:-}" ]]; then
     [[ "$NCCL_IB_GID_INDEX" =~ ^[0-9]+$ ]] || return 1
     candidates=("$NCCL_IB_GID_INDEX")
@@ -196,7 +224,8 @@ ring_gid_index() {
   return 1
 }
 
-# Head-side ring preflight. Silent (and free) unless the switch is on.
+# Head-side ring preflight. Silent (and free) unless the switch is on. The optional
+# argument is the host address the launcher detects the GID index from.
 nccl_preflight() {
   local library
   switchless_ring_enabled || return 0
@@ -219,7 +248,7 @@ nccl_preflight() {
       echo "NCCL: $IMAGE lacks the pip library at $NCCL_PIP_SO" >&2; return 1;
     }
   fi
-  ring_gid_index || return 1
+  ring_gid_index '' "${1:-}" || return 1
   return 0
 }
 
@@ -234,7 +263,7 @@ nccl_worker_settings() {
     printf 'NCCL_HOST_DIR=%q\n' "$NCCL_HOST_DIR"
   fi
   local key
-  for key in NCCL_OVERLAY_PIP NCCL_PIP_SO NCCL_CONTAINER_DIR NCCL_SWITCHLESS_RING_ONLY IB_HCA IMAGE NCCL_IB_GID_INDEX; do
+  for key in NCCL_OVERLAY_PIP NCCL_PIP_SO NCCL_CONTAINER_DIR NCCL_SWITCHLESS_RING_ONLY IB_HCA IMAGE NCCL_IB_GID_INDEX NCCL_IB_GID_AUTO; do
     printf '%s=%q\n' "$key" "${!key:-}"
   done
   # switchless_ring_enabled is the first thing nccl_preflight and

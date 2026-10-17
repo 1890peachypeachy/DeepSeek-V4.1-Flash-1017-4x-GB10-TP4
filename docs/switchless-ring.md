@@ -496,7 +496,11 @@ NCCL_DEBUG_SUBSYS=INIT,ENV,NET    # add NET while validating; drop it afterwards
   is a common choice on this fabric.
 * **A wrong GID index is the usual failure.** All ports listed in `IB_HCA` must
   share one nonzero IPv4-mapped RoCE v2 GID; the preflight finds it or validates
-  your `NCCL_IB_GID_INDEX` override. Management IPs need not appear in the GID table.
+  your `NCCL_IB_GID_INDEX` override. With `NCCL_IB_GID_AUTO=1`, no override and no
+  GID for the node's own address (the usual ring case), no index is pinned and NCCL
+  picks one per device, so each port only needs its own (the preflight reports
+  `auto`); a detected index is still pinned and checked on every port.
+  Management IPs need not appear in the GID table.
 * **Do not also set `NCCL_SWITCHLESS_RING_ONLY=1` with a switched fabric.** The ring
   skips the tree, which is a performance loss when the tree is reachable.
 * **A ring is not a non-blocking fabric.** Opposite ranks talk through a transit

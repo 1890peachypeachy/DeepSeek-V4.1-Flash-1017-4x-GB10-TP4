@@ -499,14 +499,14 @@ cmd_doctor() {
   # Switchless ring. Inert unless NCCL_SWITCHLESS_RING_ONLY=1; validates the config
   # and every rank's patched NCCL + RoCE v2 GID before any container is replaced.
   if switchless_ring_enabled; then
-    local ring_gid wh wgid
+    local ring_gid wi wh wgid
     if nccl_validate_config; then
       info "switchless ring: config OK (NNODES=$NNODES TP=$TP_SIZE EP=$EP_SIZE, IB_HCA=$IB_HCA)"
     else
       warn "switchless ring: configuration rejected"
       ok=1
     fi
-    if ring_gid=$(nccl_preflight); then
+    if ring_gid=$(nccl_preflight "$HEAD_IP"); then
       info "switchless ring: head preflight OK (RoCEv2 GID index $ring_gid)"
     else
       warn "switchless ring: head preflight failed"
@@ -515,12 +515,13 @@ cmd_doctor() {
     # Not fatal: the ring still forms, the extra devices just stay idle. Silence
     # here is what makes a half-used dual-plane board hard to notice.
     nccl_gid_publication_check
-    for wh in "${WORKER_HOSTS[@]}"; do
+    for wi in "${!WORKER_HOSTS[@]}"; do
+      wh="${WORKER_HOSTS[$wi]}"
       if wgid=$(remote_on "$wh" "set -e
 $(nccl_worker_settings)
-nccl_preflight" 2>/dev/null); then
+nccl_preflight $(printf '%q' "${WORKER_IPS[$wi]:-}")" 2>/dev/null); then
         wgid="${wgid//[$'\r\n']/}"
-        if [[ "$wgid" =~ ^[0-9]+$ ]]; then
+        if [[ "$wgid" =~ ^([0-9]+|auto)$ ]]; then
           info "switchless ring: $wh preflight OK (RoCEv2 GID index $wgid)"
         else
           warn "switchless ring: $wh preflight returned no GID index"
@@ -747,7 +748,7 @@ cmd_serve() {
   # init anyway, after replacing four containers.
   if switchless_ring_enabled; then
     nccl_validate_config || die "switchless ring: invalid configuration (./start.sh doctor)"
-    nccl_preflight >/dev/null || die "switchless ring: head preflight failed (./start.sh doctor)"
+    nccl_preflight "$HEAD_IP" >/dev/null || die "switchless ring: head preflight failed (./start.sh doctor)"
   fi
 
   local h
