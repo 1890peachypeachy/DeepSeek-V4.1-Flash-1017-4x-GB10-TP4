@@ -134,7 +134,13 @@ Raw runs: [`results/ab-runs/baseline` and `results/ab-runs/armAB`](https://githu
 | real-text prefill 8K / 32K, tok/s | 4,030 / 4,634 | 4,450 / 5,103 | +10 / +10 % |
 | KV pool, tokens | 4,198,912 | 4,327,424 | |
 | `qeval.py`, 75 tasks, c1 | 72/75, median 77.03 tok/s (1 run) | 71/75 in all 3 runs, median of the 3 runs' medians 84.6 (84.6 / 85.47 / 83.0) | |
-| draft tokens accepted per step, c1, 256 tokens | not measured | prose 2.78, code 5.12, structured 5.22 | |
+| tokens per verify step, c1, 256 tokens | not measured | withdrawn (see note below the table) | |
+
+Correction: this row first said prose 2.78, code 5.12, structured 5.22. Those numbers divided the 256 new tokens by the change in the
+server's `spec_verify_calls_total` counter around a whole sparkDash job. A sparkDash job also sends a 32-token warm-up request, so the
+counter held the warm-up's verify steps too: the step count was too high and the numbers too low. They also counted committed tokens
+(accepted drafts + 1), not accepted drafts. The tok/s rows are not affected (they come from sparkDash's own timing). A per-request
+measurement will replace this row.
 
 The plain ring misses `code_interval_intersect`, `json_escape` and `math_m9`. The dual-PCI + hairpin config misses the same three plus `json_count`.
 Prose c1 is one greedy prompt and carries the acceptance caveat given in the switch-hop repository. Which of the two changes does what:
