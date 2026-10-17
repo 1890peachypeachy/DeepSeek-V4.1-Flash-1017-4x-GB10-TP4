@@ -7,6 +7,8 @@
   clockwise), refuses a cable that breaks that contract, and translates sparkring's per-rank
   paths into peer maps for the TP rank order. The fixtures are a real four-Spark ring whose TP
   order runs the other way round the cables (TP 0,1,2,3 = ring 0,3,2,1).
+- --reversed: a node with both plugs swapped is accepted with its roles swapped in software, a
+  node with only one plane swapped still refuses.
 - every map pairs path i at both ends on the same PCIe domain, and a neighbour's paths cross the
   cable (f0 at one end, f1 at the other).
 - in the image: the RoCEnante overlay selects the package from DSV41_ROCE_RING.
@@ -95,6 +97,19 @@ class Plan(unittest.TestCase):
         bad["s2"]["enp1s0f0np0"], bad["s2"]["enp1s0f1np1"] = bad["s2"]["enp1s0f1np1"], bad["s2"]["enp1s0f0np0"]
         with self.assertRaises(SystemExit):
             plan.ring_order(inventory(bad), HOSTS)
+
+    def test_reversed_node(self):
+        swapped = {h: dict(p) for h, p in ADDR.items()}
+        for f0, f1 in (("enp1s0f0np0", "enp1s0f1np1"), ("enP2p1s0f0np0", "enP2p1s0f1np1")):
+            swapped["s2"][f0], swapped["s2"][f1] = swapped["s2"][f1], swapped["s2"][f0]
+        with self.assertRaises(SystemExit):
+            plan.ring_order(inventory(swapped), HOSTS)
+        self.assertEqual(plan.ring_order(inventory(swapped), HOSTS, {"s2"}), ["s1", "s4", "s3", "s2"])
+        self.assertEqual([plan.port("s2", "clockwise", f, {"s2"}) for f in (0, 1)], ["enp1s0f1np1", "enP2p1s0f1np1"])
+        half = {h: dict(p) for h, p in ADDR.items()}
+        half["s2"]["enp1s0f0np0"], half["s2"]["enp1s0f1np1"] = half["s2"]["enp1s0f1np1"], half["s2"]["enp1s0f0np0"]
+        with self.assertRaises(SystemExit):
+            plan.ring_order(inventory(half), HOSTS, {"s2"})
 
     def test_peer_maps(self):
         order = plan.ring_order(inventory(ADDR), HOSTS)

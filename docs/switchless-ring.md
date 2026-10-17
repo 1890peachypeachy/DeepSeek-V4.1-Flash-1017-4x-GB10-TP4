@@ -624,6 +624,13 @@ the two before it (the fast loader's boot-to-boot spread).
    tc rules and two markers. It writes `mesh-up-<host>.sh` / `mesh-down-<host>.sh` and `env.txt`,
    the `EXTRA_CONTAINER_ENV` additions with the per-rank peer maps already translated to the TP rank
    order (sparkring numbers the ring by cabling direction, which need not match it).
+
+   A node whose two plugs are swapped (its f0 ports reach the previous node, its f1 ports the next)
+   does not need recabling: `--reversed <host>` (repeatable) gives that node the roles in software,
+   clockwise on f1 and counter-clockwise on f0, and keeps function 0 paired with function 0. b12x's
+   `roce_ring` proxy (`_roce_proxy.c`) wants the canonical map (f0 clockwise on every rank) only with
+   `B12X_ROCE_OPPOSITE_PATHS=4` or a `B12X_ROCE_WAVE_MODE` other than `two`; `env.txt` sets neither,
+   so leave both unset with a reversed node.
 4. **Install on every node** with the engine stopped (applying the hairpin size re-initialises each
    fabric function); `$HOST` is that node's name as given to `plan.py`:
 
