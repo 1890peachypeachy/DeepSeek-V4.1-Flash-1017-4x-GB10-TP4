@@ -499,6 +499,23 @@ NCCL_DEBUG_SUBSYS=INIT,ENV,NET    # add NET while validating; drop it afterwards
   your `NCCL_IB_GID_INDEX` override. Management IPs need not appear in the GID table.
 * **Do not also set `NCCL_SWITCHLESS_RING_ONLY=1` with a switched fabric.** The ring
   skips the tree, which is a performance loss when the tree is reachable.
+* **A link-local IPv6 setting can take GID index 3 away from the IPv4 address** (seen on another
+  ring). There, 11 of 16 fabric functions had a link-local `fe80` GID at index 3 instead of the
+  IPv4 one. Those 11 were exactly the ports whose NetworkManager connection had `ipv6.method
+  link-local`; the 5 with `ipv6.method disabled` already had the IPv4 GID at 3. The mesh needs it
+  there (`plan.py` refuses the node, and the fabric document pins `roce_gid_index` 3), and 3 is also
+  the launcher's fallback when no index is detected. Fix each affected fabric connection with the
+  engine down, then reload the driver:
+
+  ```bash
+  nmcli -g ipv6.method con show <connection>     # link-local on the affected ports
+  sudo nmcli con mod <connection> ipv6.method disabled && sudo nmcli con up <connection>
+  sudo modprobe -r mlx5_ib && sudo modprobe mlx5_ib
+  ```
+
+  Then check that `gids/3` on every fabric function ends in `ffff:<ipv4 as hex>` (`inventory.sh`
+  prints it as `gid3`). There, that held on all 16 afterwards and RoCEnante came up with
+  `gid_index=3`. The setting is stored in the connection profile; a reboot was not tested.
 * **A ring is not a non-blocking fabric.** Opposite ranks talk through a transit
   node, so a four-node ring's bisection bandwidth is one link, not two. Without the
   opposite-node paths below, expect the decode numbers under Measured rather than the switched ones.
