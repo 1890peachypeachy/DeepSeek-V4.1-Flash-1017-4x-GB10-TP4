@@ -119,3 +119,76 @@ Prefill did not improve (8k real text 4,030 -> 3,877 tok/s; 32k real text 4,634 
 and known issues (settings that reset at reboot) are in
 **[adapt-ai-systems/gb10-hairpin-ring-switch-hop](https://github.com/adapt-ai-systems/gb10-hairpin-ring-switch-hop)**.
 The mesh itself is [FujitsuPolycom/sparkring](https://github.com/FujitsuPolycom/sparkring) (Apache-2.0), integrated into this recipe by knapcio's `scripts/ring_mesh/`.
+
+## Serve config we adopted: dual-PCI NCCL plus hairpin mesh
+
+After the mesh-only test above we added a second change: NCCL routing across both PCIe domains of each node, so all four RDMA functions carry traffic.
+Same weights, same ring (one hop through a switch), same day. Harness H1 subset (sparkDash 1.8.8, 256 new tokens, temperature 0, thinking off, `-lgc 0,2200`, median of 3).
+Raw runs: [`results/ab-runs/baseline` and `results/ab-runs/armAB`](https://github.com/adapt-ai-systems/gb10-hairpin-ring-switch-hop/tree/main/results/ab-runs) in the switch-hop repository.
+
+| row | plain ring (`.env.tp4.1017-ring.example`) | dual-PCI + hairpin | change |
+|---|---|---|---|
+| decode c1: prose / code / structured, tok/s | 68.2 / 122.9 / 138.5 | 84.3 / 137.5 / 154.9 | +24 / +12 / +12 % |
+| decode c4 aggregate: prose / code / structured, tok/s | 154.2 / 235.2 / 164.3 | 175.9 / 248.7 / 203.0 | +14 / +6 / +24 % |
+| filler prefill 8K / 32K, tok/s | 4,671 / 5,140 | 4,712 / 5,618 | +1 / +9 % |
+| real-text prefill 8K / 32K, tok/s | 4,030 / 4,634 | 4,450 / 5,103 | +10 / +10 % |
+| KV pool, tokens | 4,198,912 | 4,327,424 | |
+| `qeval.py`, 75 tasks, c1 | 72/75, median 77.03 tok/s (1 run) | 71/75 in all 3 runs, median of the 3 runs' medians 84.6 (84.6 / 85.47 / 83.0) | |
+| draft tokens accepted per step, c1, 256 tokens | not measured | prose 2.78, code 5.12, structured 5.22 | |
+
+The plain ring misses `code_interval_intersect`, `json_escape` and `math_m9`. The dual-PCI + hairpin config misses the same three plus `json_count`.
+Prose c1 is one greedy prompt and carries the acceptance caveat given in the switch-hop repository. Which of the two changes does what:
+mesh only (the table above) moves decode and leaves prefill flat; dual-PCI NCCL only did not move decode (within 1.5 %) and moved real-text prefill +11 % / +9 %;
+the two together keep the mesh decode gain and add +6 % / +12 % filler and +15 % / +10 % real-text prefill over mesh only. That the gains add
+because the two paths carry different traffic (small all-reduces on the mesh, large prefill collectives on NCCL) is our inference; we did not trace it.
+
+### Environment changes against `.env.tp4.1017-ring.example`
+
+```
+IB_HCA=rocep1s0f0,rocep1s0f1,roceP2p1s0f0,roceP2p1s0f1        # was rocep1s0f0,rocep1s0f1
+NCCL_HOST_DIR=$HOME/nccl-2.30.7-dual                          # was $HOME/nccl-2.30.7-ring
+NCCL_IB_EXTENDED_IPV4_GIDS=1                                  # new
+NCCL_IB_PRESERVE_PCI_DOMAIN=1                                 # new
+NCCL_IB_ROUTE_DIAGNOSTICS=1                                   # new
+NCCL_IB_QPS_PER_CONNECTION=1                                  # new
+```
+
+In `EXTRA_CONTAINER_ENV`, remove `SGLANG_ROCE_ALLREDUCE=0` and append the line that `scripts/ring_mesh/plan.py` writes to its `env.txt`:
+
+```
+DSV41_ROCE_RING=1 SGLANG_ROCE_ALLREDUCE=1 SGLANG_ROCE_MAX_SIZE=262144 DSV41_ROCE_GATHER=262144
+B12X_ROCE_HCA=rocep1s0f0,rocep1s0f1,roceP2p1s0f0,roceP2p1s0f1
+B12X_ROCE_PEER_HCA_MAPS=<from the planner; depends on the cabling and on which node is reversed>
+B12X_ROCE_TWO_WAVE_THRESHOLD_BYTES=0
+```
+
+One of our nodes had its ring ports used in reversed roles (`--reversed`, [knapcio PR #12](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4/pull/12)). Our `B12X_ROCE_PEER_HCA_MAPS` value was
+`1=1/3,2=0/3,3=0/2;0=1/3,2=0/2,3=0/3;0=1/2,1=0/2,3=1/3;0=1/3,1=0/3,2=0/2`. It is valid only for that wiring. Generate yours with the planner.
+
+### The dual-PCI NCCL library
+
+We did not build it. We used sparkring's prebuilt Route A files (sparkring release `native-runtime-sm121-aa8fa11831af`):
+
+| item | value |
+|---|---|
+| archive | `native-runtime-files-20260908.tar`, sha256 `aa8fa11831afaa4539e0b74442fd1ea25dd8cf49ad5edb6fd95e7f05fdf5ce86` |
+| library inside | `native/libnccl.so.2.30.7`, 63,651,200 bytes, sha256 `768a450b5eb84bf3d1191795350e43c96de75aeba4783ec314d47672fe6e1fc6` |
+| feature markers found in it with `grep -a` | `SWITCHLESS_RING_ONLY`, `EXTENDED_IPV4_GIDS`, `PRESERVE_PCI_DOMAIN` |
+| NCCL base revision | `73cf112295c33aee2b895f329f592f2a9b4b0f97` (NVIDIA/nccl) |
+| patch | sparkring `runtime/sparkring/source_image/patches/nccl.patch` at `17dafa8b`, sha256 `8e2b8715d62d2b07a74caca3778da0eff2e7b54caf8a184bb728f179a5d1eba4` |
+
+The archive's own `provenance.json` says the files were exported unchanged from an image that sparkring qualified for a different model, and that the evidence does not qualify other uses.
+sparkring labels the dual-PCI-domain patch "research-only". We measured it on DeepSeek-V4.1-Flash-1017; that is our measurement, not sparkring's qualification.
+
+### Host prerequisites (engine stopped, all four nodes)
+
+1. The RoCEv2 GID at index 3 must be the IPv4 GID on all four fabric functions of every node. Our fix: `ipv6.method disabled` on the fabric NetworkManager connections, bring them up again, reload `mlx5_ib`
+   ([knapcio PR #15](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4/pull/15)). Whether this survives a reboot was not tested by us as a separate step.
+2. Install the mesh as described in `docs/switchless-ring.md`, "RoCEnante on the ring": marker binary, `hairpin.sh 8192`, the `dsv41-mesh` units. We start the units by hand and do not enable them.
+3. The up and down scripts we adapted are `ring-up.sh` and `ring-down.sh` in [the switch-hop repository](https://github.com/adapt-ai-systems/gb10-hairpin-ring-switch-hop/tree/main/scripts). They are generalised and were not re-run in that form.
+
+### Boot caveat
+
+One boot of this config took 16 minutes: weight load 807 s, with all ranks waiting on rank 3 in the CPU-side `_dequant_fp8_wo_a_streaming`. The other boots of the mesh configs took 7 to 9 minutes. We do not know the cause.
+The one node waited on had 16 GB of free memory during the load; we did not test whether that matters.
+The KV pool also varied by boot: one dual-PCI-only boot gave 3,240,448 tokens, and the dual-PCI + hairpin boot above gave 4,327,424. We did not find the cause of the low boot.
