@@ -6,19 +6,27 @@ named in the last section. Where a number was not measured, this page says so.
 
 ## What changed in the weights (V4.1-Flash -> V4.1-Flash-1017)
 
-Compared through the Hugging Face tree API, `deepseek-ai/DeepSeek-V4.1-Flash` @`314113f8` against
-`deepseek-ai/DeepSeek-V4.1-Flash-1017` @`1bae0e10` (full revision `1bae0e1088993b9b82de08f59de5be5a34e42170`):
+Compared through the Hugging Face tree API (per-file LFS hashes) on 2026-10-17: `deepseek-ai/DeepSeek-V4.1-Flash-1017` @`1bae0e10`
+(full revision `1bae0e1088993b9b82de08f59de5be5a34e42170`) against two revisions of `deepseek-ai/DeepSeek-V4.1-Flash`:
 
-| item | result |
-|---|---|
-| `config.json` | byte-identical (same architecture `DeepseekV41ForCausalLM`, 40 layers, 384 experts, Engram layers 1 and 14, DSpark with 3 MTP layers) |
-| `model.safetensors.index.json` | identical: same 96,085 tensor names, same tensor-to-shard map, `total_size` 510,286,023,000 |
-| tokenizer files, `encoding/*`, `inference/*` | identical |
-| the 48 shards | all 48 differ in content, all 48 have the same byte size |
-| removed in 1017 | `chat_template.jinja`, the tech-report PDF, `evaluation/`, `assets/`, `.gitignore` |
+- `fb2764a5`: the revision knapcio's recipe pinned before this fork (`HF_REVISION` in `.env.tp4.example` and `start.sh` at `27616be`). This is the comparison that matters for a user of the recipe.
+- `314113f8`: the head of the V4.1-Flash repository on that day (last modified 2026-10-16), shown because it is what someone downloading V4.1-Flash today gets.
 
-So 1017 is a drop-in weight swap for this recipe. `chat_template.jinja` is not read by `boot.py`, `start.sh` or
-`adapter/` (they only use `chat_template_kwargs`), and the recipe booted and answered without it.
+| item | 1017 vs `fb2764a5` (recipe pin) | 1017 vs `314113f8` (repo head) |
+|---|---|---|
+| `config.json` | byte-identical (same architecture `DeepseekV41ForCausalLM`, 40 layers, 384 experts, Engram layers 1 and 14, DSpark with 3 MTP layers) | byte-identical |
+| `model.safetensors.index.json` | identical: same 96,085 tensor names, same tensor-to-shard map, `total_size` 510,286,023,000 | identical |
+| `tokenizer.json`, `tokenizer_config.json` | identical | identical |
+| the 48 shards | all 48 differ in content, all 48 have the same byte size | same |
+| `encoding/` and `inference/` files | `encoding/encoding.py`, `encoding/test_encoding.py`, `encoding/README.md`, `encoding/tests/test_output_1.txt`, `inference/model.py` and `inference/requirements.txt` differ (sizes differ); the rest are identical. We did not read these diffs. | identical |
+| files only in the older revision | `DeepSeek_V41_Tech_Report.pdf`, `evaluation/`, `assets/` | the same, plus `chat_template.jinja` and `.gitignore` (these two are not in `fb2764a5`) |
+
+Against the repository head the `encoding/` and `inference/` files are identical, so the differences against `fb2764a5` in those folders
+were made in V4.1-Flash before 1017.
+
+The weights are a drop-in swap for this recipe: same config, same tensor names and shard map, same shard sizes. `chat_template.jinja` is
+not read by `boot.py`, `start.sh` or `adapter/` (they only use `chat_template_kwargs`), and the recipe booted and answered without it.
+We did not test whether the `encoding/` differences change anything for this recipe.
 
 ## What this fork changes
 
