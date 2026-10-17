@@ -1,0 +1,89 @@
+{
+ "benchId": "bee14fb8-b70b-4be0-a673-397cf424a5e8",
+ "sparkId": "ring",
+ "status": "completed",
+ "startedAt": 1792235389110,
+ "completedAt": 1792235439314,
+ "config": {
+  "port": 8888,
+  "modelId": "default",
+  "contextSizes": [
+   4096,
+   16384,
+   32768,
+   65536,
+   131072
+  ]
+ },
+ "progress": {
+  "currentContext": null,
+  "completedLevels": 5,
+  "totalLevels": 5,
+  "message": "Done"
+ },
+ "results": [
+  {
+   "targetTokens": 4096,
+   "promptTokens": 4114,
+   "promptChars": 16383,
+   "prefillTps": 4171.67,
+   "ttftMs": 986.18,
+   "ttftContentMs": 986.18,
+   "completionTokens": 2,
+   "durationMs": 1040.34,
+   "model": "default",
+   "error": null
+  },
+  {
+   "targetTokens": 16384,
+   "promptTokens": 16399,
+   "promptChars": 65535,
+   "prefillTps": 5081.96,
+   "ttftMs": 3226.9,
+   "ttftContentMs": 3226.9,
+   "completionTokens": 2,
+   "durationMs": 3271.49,
+   "model": "default",
+   "error": null
+  },
+  {
+   "targetTokens": 32768,
+   "promptTokens": 32789,
+   "promptChars": 131071,
+   "prefillTps": 5144.51,
+   "ttftMs": 6373.59,
+   "ttftContentMs": 6373.59,
+   "completionTokens": 2,
+   "durationMs": 6423.62,
+   "model": "default",
+   "error": null
+  },
+  {
+   "targetTokens": 65536,
+   "promptTokens": 65557,
+   "promptChars": 262143,
+   "prefillTps": 5153.18,
+   "ttftMs": 12721.65,
+   "ttftContentMs": 12721.65,
+   "completionTokens": 2,
+   "durationMs": 12769.03,
+   "model": "default",
+   "error": null
+  },
+  {
+   "targetTokens": 131072,
+   "promptTokens": 131092,
+   "promptChars": 524287,
+   "prefillTps": 4986.28,
+   "ttftMs": 26290.52,
+   "ttftContentMs": 26290.52,
+   "completionTokens": 2,
+   "durationMs": 26339.19,
+   "model": "default",
+   "error": null
+  }
+ ],
+ "error": null,
+ "durationMs": 50204,
+ "owner": null
+}

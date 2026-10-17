@@ -2,6 +2,19 @@
 
 <p align="center">A measured TP4 serving profile for <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash">deepseek-ai/DeepSeek-V4.1-Flash</a> (native weights, SGLang, DSpark) on four NVIDIA DGX Spark (GB10) nodes, built on top of the MiaAI-Lab recipe.</p>
 
+## Fork notes: DeepSeek-V4.1-Flash-1017
+
+This is a fork of [knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4](https://github.com/knapcio/DeepSeek-V4.1-Flash-4x-DGX-Spark-TP4) at `27616be` (v2.4), maintained by Adapt AI Systems on the `1017` branch.
+The fork changes the default weights to [deepseek-ai/DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017) @`1bae0e10` and adds measurements on a ring that has one switch hop.
+Everything else is knapcio's work and is unchanged. The numbers in "Current results" below are knapcio's, for the old weights on a switched fabric.
+
+- What changed in the weights, the Engram repack step, our boot and the plain-ring results: [`docs/deepseek-v4.1-flash-1017.md`](docs/deepseek-v4.1-flash-1017.md)
+- Ring environment we booted from: [`.env.tp4.1017-ring.example`](.env.tp4.1017-ring.example)
+- Raw results: [`docs/results/ds1017/`](docs/results/ds1017/)
+- Hairpin mesh through one switch hop (software port-role swap, GID fix, test, A/B results): [adapt-ai-systems/gb10-hairpin-ring-switch-hop](https://github.com/adapt-ai-systems/gb10-hairpin-ring-switch-hop)
+
+Credit for the recipe goes to Mia (MiaAI-Lab), knapcio, and the sparkring authors; see Credits below. The licence is unchanged (AGPL-3.0).
+
 ## Credits
 
 This repository is a downstream profile of **[MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks)** by Mia (MiaAI-Lab). The launcher (`start.sh`, `start-tp4.sh`, `boot.py`), the Engram NVMe row store, the MXFP8 b12x routing, the memory model in `docs/chunked-prefill-memory.md`, the thinking alias, the output cap, the loop abort and the overall deployment design are her work, kept here with full git history and under the same licence. The original README is preserved as [`docs/README-upstream.md`](docs/README-upstream.md); read it first for the fleet setup (NFS share, Engram packing, fabric, 3-node profile).

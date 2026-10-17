@@ -95,8 +95,8 @@ NCCL_PIP_SO="${NCCL_PIP_SO:-/opt/sglang/lib/python3.12/site-packages/nvidia/nccl
 
 MODEL_DIR="${MODEL_DIR:-$HOME/NewModels/DeepSeek-V4.1-Flash}"
 COMMON_MODEL="${COMMON_MODEL:-/var/tmp/DeepSeek-V4.1-Flash}"
-HF_REPO="${HF_REPO:-deepseek-ai/DeepSeek-V4.1-Flash}"
-HF_REVISION="${HF_REVISION:-fb2764a5cf321eaa5070ca8f9e892818f477c16d}"
+HF_REPO="${HF_REPO:-deepseek-ai/DeepSeek-V4.1-Flash-1017}"
+HF_REVISION="${HF_REVISION:-1bae0e1088993b9b82de08f59de5be5a34e42170}"
 EXPECTED_SHARDS="${EXPECTED_SHARDS:-48}"
 
 BASE_IMAGE="${BASE_IMAGE:-lmsysorg/sglang:dev-dsv41}"

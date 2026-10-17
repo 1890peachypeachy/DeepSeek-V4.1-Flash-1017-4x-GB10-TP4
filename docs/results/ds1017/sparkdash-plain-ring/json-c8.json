@@ -1,0 +1,154 @@
+{
+ "benchId": "87aa524e-e0e8-40b2-9bfc-206195b28bce",
+ "sparkId": "ring",
+ "status": "completed",
+ "startedAt": 1792235322819,
+ "completedAt": 1792235328566,
+ "config": {
+  "port": 8888,
+  "modelId": "default",
+  "concurrencies": [
+   8
+  ],
+  "maxTokens": 256,
+  "promptType": "json"
+ },
+ "progress": {
+  "currentConcurrency": null,
+  "completedLevels": 1,
+  "totalLevels": 1,
+  "message": "Done"
+ },
+ "results": [
+  {
+   "concurrency": 8,
+   "streamsOk": 8,
+   "streamsFailed": 0,
+   "meanDecodeTps": 55.1,
+   "medianDecodeTps": 55.06,
+   "minDecodeTps": 52.92,
+   "maxDecodeTps": 56.23,
+   "meanTtftMs": 369.39,
+   "medianTtftMs": 369.34,
+   "aggregateDecodeTps": 423,
+   "meanPrefillTps": 159.73,
+   "medianPrefillTps": 159.75,
+   "aggregatePrefillTps": 1268.31,
+   "totalPrefillTokens": 472,
+   "totalDecodeTokens": 2040,
+   "totalCompletionTokens": 2048,
+   "durationMs": 5191.64,
+   "error": null,
+   "streams": [
+    {
+     "index": 0,
+     "ttftContentMs": 371.68,
+     "reasoningChunks": 0,
+     "ttftMs": 371.68,
+     "decodeTps": 55.05,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 158.74,
+     "prefillTokens": 59,
+     "totalMs": 5003.57,
+     "error": null
+    },
+    {
+     "index": 1,
+     "ttftContentMs": 369.92,
+     "reasoningChunks": 0,
+     "ttftMs": 369.92,
+     "decodeTps": 55.05,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 159.49,
+     "prefillTokens": 59,
+     "totalMs": 5001.97,
+     "error": null
+    },
+    {
+     "index": 2,
+     "ttftContentMs": 367.14,
+     "reasoningChunks": 0,
+     "ttftMs": 367.14,
+     "decodeTps": 56.2,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 160.7,
+     "prefillTokens": 59,
+     "totalMs": 4904.78,
+     "error": null
+    },
+    {
+     "index": 3,
+     "ttftContentMs": 369.57,
+     "reasoningChunks": 0,
+     "ttftMs": 369.57,
+     "decodeTps": 56.23,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 159.65,
+     "prefillTokens": 59,
+     "totalMs": 4904.87,
+     "error": null
+    },
+    {
+     "index": 4,
+     "ttftContentMs": 368.55,
+     "reasoningChunks": 0,
+     "ttftMs": 368.55,
+     "decodeTps": 54.02,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 160.09,
+     "prefillTokens": 59,
+     "totalMs": 5089.09,
+     "error": null
+    },
+    {
+     "index": 5,
+     "ttftContentMs": 370.15,
+     "reasoningChunks": 0,
+     "ttftMs": 370.15,
+     "decodeTps": 52.92,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 159.39,
+     "prefillTokens": 59,
+     "totalMs": 5189.11,
+     "error": null
+    },
+    {
+     "index": 6,
+     "ttftContentMs": 369.1,
+     "reasoningChunks": 0,
+     "ttftMs": 369.1,
+     "decodeTps": 55.06,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 159.85,
+     "prefillTokens": 59,
+     "totalMs": 5000.72,
+     "error": null
+    },
+    {
+     "index": 7,
+     "ttftContentMs": 369.01,
+     "reasoningChunks": 0,
+     "ttftMs": 369.01,
+     "decodeTps": 56.23,
+     "decodeTokens": 255,
+     "completionTokens": 256,
+     "prefillTps": 159.89,
+     "prefillTokens": 59,
+     "totalMs": 4904.1,
+     "error": null
+    }
+   ],
+   "model": "default"
+  }
+ ],
+ "error": null,
+ "durationMs": 5747,
+ "owner": null
+}
