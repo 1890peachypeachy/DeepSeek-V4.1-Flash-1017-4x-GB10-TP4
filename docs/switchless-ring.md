@@ -687,6 +687,13 @@ paths first, forwarded paths after, from 128 KB) only costs once nothing drops:
   NCCL while the step was 5 % faster. Compare step time (`spec_verify_ct`) or qeval's median over its
   75 tasks; that median itself moves 2-3 % from run to run (81.8 / 84.7 / 85.9 on one boot here), so take
   the median of several runs.
+- **One hop may cross a plain L2 switch** instead of a DAC (tested with one switch, one hop, both
+  planes). The marked 0x88b5 frames crossed it: an `ib_write_lat --flow_label=16383` (both sides) at
+  61 KB to the opposite node through that hop counted 32,001 packets on the neighbour's rule, all of
+  them in hardware (`Sent software 0`), at 11.5 us typical against 10.1 us on a DAC-only path of the
+  same ring. The engine then served on that ring (RoCEnante on all four functions, qeval 71/75).
+  `plan.py` only needs the hop's /24 to hold exactly two of the four nodes' ports. A switch that
+  filters EtherTypes would drop the marked frames; untested here.
 - CPU pinning does not help: the scheduler on the X925 cores measured -5.5 %, the proxy threads alone
   on dedicated X925 cores neutral.
 
