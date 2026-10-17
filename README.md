@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner-1017.png" alt="DeepSeek V4.1 Flash 1017 on 4x GB10, TP4, hairpin ring" width="100%"></p>
+
 <h1 align="center">DeepSeek-V4.1-Flash on 4x DGX Spark — tuned TP4 profile</h1>
 
 <p align="center">A measured TP4 serving profile for <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash">deepseek-ai/DeepSeek-V4.1-Flash</a> (native weights, SGLang, DSpark) on four NVIDIA DGX Spark (GB10) nodes, built on top of the MiaAI-Lab recipe.</p>
