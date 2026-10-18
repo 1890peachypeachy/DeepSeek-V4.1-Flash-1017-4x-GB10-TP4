@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / 'adapter'))
 
 from encoding_compat import (  # noqa: E402
     PUBLISHER_REASONING_EFFORT,
+    apply_default_thinking,
     install_encoder,
     install_serving_chat,
     normalize_chat_template_kwargs,
@@ -81,3 +82,54 @@ if __name__ == '__main__':
             print(f'[FAIL] {fn.__name__}: {exc}')
     print(f'{len(tests) - failed}/{len(tests)} passed')
     sys.exit(1 if failed else 0)
+
+
+def test_default_thinking_off_leaves_requests_alone(monkeypatch=None):
+    import os
+    os.environ.pop('SGLANG_DEFAULT_THINKING', None)
+    assert apply_default_thinking(None) is None
+    assert apply_default_thinking({}) == {}
+    assert apply_default_thinking({'foo': 1}) == {'foo': 1}
+
+
+def test_default_thinking_on_fills_silent_requests():
+    import os
+    os.environ['SGLANG_DEFAULT_THINKING'] = '1'
+    try:
+        assert apply_default_thinking(None) == {'thinking': True, 'enable_thinking': True}
+        assert apply_default_thinking({}) == {'thinking': True, 'enable_thinking': True}
+        assert apply_default_thinking({'foo': 1}) == {
+            'foo': 1, 'thinking': True, 'enable_thinking': True}
+    finally:
+        os.environ.pop('SGLANG_DEFAULT_THINKING', None)
+
+
+def test_default_thinking_never_overrides_an_explicit_flag():
+    import os
+    os.environ['SGLANG_DEFAULT_THINKING'] = '1'
+    try:
+        for given in ({'thinking': False}, {'enable_thinking': False},
+                      {'thinking': True}, {'enable_thinking': True}):
+            assert apply_default_thinking(given) == given
+    finally:
+        os.environ.pop('SGLANG_DEFAULT_THINKING', None)
+
+
+def test_install_serving_chat_applies_lane_default():
+    import os
+    os.environ['SGLANG_DEFAULT_THINKING'] = '1'
+    try:
+        class FakeServing:
+            class OpenAIServingChat:
+                def _process_messages(self, request, is_multimodal):
+                    return request.chat_template_kwargs
+
+        install_serving_chat(FakeServing)
+        serving = FakeServing.OpenAIServingChat()
+        silent = SimpleNamespace(chat_template_kwargs=None)
+        assert serving._process_messages(silent, False) == {
+            'thinking': True, 'enable_thinking': True}
+        off = SimpleNamespace(chat_template_kwargs={'thinking': False})
+        assert serving._process_messages(off, False)['thinking'] is False
+    finally:
+        os.environ.pop('SGLANG_DEFAULT_THINKING', None)

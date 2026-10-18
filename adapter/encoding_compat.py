@@ -60,6 +60,34 @@ def normalize_chat_template_kwargs(kwargs):
     return out
 
 
+def default_thinking_enabled():
+    """True when the lane is configured thinking-on (SGLANG_DEFAULT_THINKING=1)."""
+    return os.environ.get('SGLANG_DEFAULT_THINKING', '').strip().lower() in (
+        '1', 'true', 'yes', 'on')
+
+
+def apply_default_thinking(kwargs):
+    """Make a request that names no thinking flag explicit when the lane defaults to thinking.
+
+    SGLang reads SGLANG_DEFAULT_THINKING in exactly one place, the prompt encoder
+    (serving_chat.py ``thinking_requested``). The reasoning-parser gate,
+    ``_get_reasoning_from_request``, never consults it: for this template the toggle
+    defaults off, so a silent request is *encoded* as thinking but *parsed* as plain
+    chat and the whole reasoning trace is returned inside ``content`` with an empty
+    ``reasoning_content``. Writing the flag into the request here, before both
+    consumers run, makes them agree. An explicit ``thinking`` / ``enable_thinking``
+    (either value) always wins, so ``thinking: false`` still turns reasoning off.
+    """
+    if not default_thinking_enabled():
+        return kwargs
+    if kwargs and ('thinking' in kwargs or 'enable_thinking' in kwargs):
+        return kwargs
+    out = dict(kwargs or {})
+    out['thinking'] = True
+    out['enable_thinking'] = True
+    return out
+
+
 def configured_max_new_tokens():
     """Return the completion-token default/cap, or 0 to leave the engine uncapped."""
     raw = os.environ.get('DSV41_MAX_NEW_TOKENS', str(DEFAULT_MAX_NEW_TOKENS)).strip()
@@ -106,8 +134,8 @@ def install_serving_chat(module):
     original = cls._process_messages
 
     def _process_messages(self, request, is_multimodal):
-        request.chat_template_kwargs = normalize_chat_template_kwargs(
-            request.chat_template_kwargs)
+        request.chat_template_kwargs = apply_default_thinking(
+            normalize_chat_template_kwargs(request.chat_template_kwargs))
         return original(self, request, is_multimodal)
 
     cls._process_messages = _process_messages
